@@ -722,7 +722,7 @@ with tab_backtest:
             bt_direction_rows = [
                 {
                     "Symbol": sym,
-                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "Entry Price (at cutoff)"].iloc[0],
+                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "Price (cutoff)"].iloc[0],
                     "Direction": bt_direction_defaults.get(sym, "Long"),
                 }
                 for sym in bt_shortlist
