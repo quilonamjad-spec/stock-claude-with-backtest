@@ -615,7 +615,7 @@ with tab_backtest:
                     "Trade Score": result["trade_score"],
                     "Confidence": result["confidence"],
                     "Signal": result["signal_label"],
-                    "Sector": index_display_name(bt_sector_idx),
+                    #"Sector": index_display_name(bt_sector_idx),
                     #"Sector Chg %": bt_sector_chg,
                     "Aligned": bt_aligned_display,
                     "RSI": result.get("rsi"),
