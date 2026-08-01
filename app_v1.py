@@ -547,7 +547,25 @@ with tab_backtest:
             f"({len(bt_result_df)} scored)"
         )
 
-        bt_display_df = bt_result_df.copy()
+        bt_colf1, bt_colf2, bt_colf3 = st.columns(3)
+        with bt_colf1:
+            bt_signal_filter = st.multiselect(
+                "Filter by signal", ["Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"],
+                default=["Strong Buy", "Buy", "Strong Sell", "Sell"],
+                key="bt_signal_filter",
+            )
+        with bt_colf2:
+            bt_min_confidence = st.slider("Minimum confidence", 0, 100, 0, key="bt_min_confidence")
+        with bt_colf3:
+            bt_sort_by = st.selectbox("Sort by", ["Trade Score", "Confidence"], index=0, key="bt_sort_by")
+
+        bt_filtered_df = bt_result_df[
+            bt_result_df["Signal"].isin(bt_signal_filter) & (bt_result_df["Confidence"] >= bt_min_confidence)
+        ].sort_values(bt_sort_by, ascending=False).reset_index(drop=True)
+
+        st.markdown(f"**{len(bt_filtered_df)}** stocks match your filters (of {len(bt_result_df)} scored).")
+
+        bt_display_df = bt_filtered_df.copy()
         bt_display_df.insert(0, "Simulate", False)
         bt_edited = st.data_editor(
             bt_display_df,
