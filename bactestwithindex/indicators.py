@@ -106,6 +106,7 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df = compute_rsi(df)
     df = compute_macd(df)
+    df["ATR"] = compute_atr(df, period=14)
     df = compute_adx(df)
     df = compute_bollinger(df)
     df = compute_ema_trend(df)

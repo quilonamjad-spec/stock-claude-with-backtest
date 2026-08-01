@@ -26,6 +26,7 @@ DEFAULT_WEIGHTS = {
     "VOLUME": 0.6,
     "EMA_TREND": 1.0,
     "CANDLESTICK": 0.8,
+    "EXTENSION": 1.0,
 }
 
 
@@ -93,9 +94,58 @@ def signal_ema_trend(row):
     return 0.0
 
 
+def signal_extension(row):
+    """
+    Mean-reversion / exhaustion check, added after noticing Strong Buy
+    signals kept firing right at local tops. Every OTHER component above
+    (MACD, ADX, BOLLINGER, VOLUME, EMA_TREND) rewards "further in the
+    trend's favor = more bullish/bearish" with essentially no ceiling --
+    none of them ask "...but is this move too stretched to keep going?"
+    RSI is the only one that fades at extremes, and it's frequently
+    outvoted by the other five all agreeing "strong move."
+
+    This measures how far price has stretched from its own 20-period mean,
+    in ATR units -- i.e. volatility-normalized distance, not RSI's
+    gain/loss ratio, so it's an independent read rather than a duplicate
+    of RSI:
+
+        extension = (Close - EMA20) / ATR
+
+    Deliberately the OPPOSITE lean from the trend-following components:
+    the further price is stretched above its mean, the MORE this fades
+    toward bearish (possible exhaustion / mean-reversion risk), not more
+    bullish. Symmetric on the downside (oversold bounce risk for shorts).
+
+        |extension| <= 1.5 ATR  -> neutral zone, no fade yet
+        |extension| >= 4.0 ATR  -> fully faded (signal magnitude 1,
+                                    opposite sign to the extension)
+    """
+    close = row.get("Close", 0)
+    ema20 = row.get("EMA20", close)
+    atr = row.get("ATR", 0)
+    if not atr or atr <= 0:
+        return 0.0
+
+    extension = (close - ema20) / atr
+    fade_start, fade_full = 1.5, 4.0
+    magnitude = float(np.clip((abs(extension) - fade_start) / (fade_full - fade_start), 0, 1))
+    sign = -1 if extension > 0 else 1  # stretched above mean -> fade bearish; stretched below -> fade bullish
+    return sign * magnitude
+
+
 def signal_candlestick(df):
     result = detect_patterns(df, lookback_index=-1)
     return result["signal"], result["patterns"]
+
+
+def _extension_atr(row):
+    """Raw (Close - EMA20) / ATR value, for display -- see signal_extension for the scored version."""
+    close = row.get("Close", 0)
+    ema20 = row.get("EMA20", close)
+    atr = row.get("ATR", 0)
+    if not atr or atr <= 0:
+        return None
+    return round(float((close - ema20) / atr), 2)
 
 
 def score_symbol(df, active_indicators: dict, weights: dict = None):
@@ -134,6 +184,8 @@ def score_symbol(df, active_indicators: dict, weights: dict = None):
         signals["VOLUME"] = signal_volume(row, prev_close)
     if active_indicators.get("EMA_TREND", True):
         signals["EMA_TREND"] = signal_ema_trend(row)
+    if active_indicators.get("EXTENSION", True):
+        signals["EXTENSION"] = signal_extension(row)
     if active_indicators.get("CANDLESTICK", True):
         cs_signal, patterns_found = signal_candlestick(df)
         signals["CANDLESTICK"] = cs_signal
@@ -185,4 +237,5 @@ def score_symbol(df, active_indicators: dict, weights: dict = None):
         "macd_hist": round(float(row.get("MACD_HIST", 0)), 3),
         "vol_ratio": round(float(row.get("VOL_RATIO", 1)), 2),
         "close": round(float(row.get("Close", 0)), 2),
+        "extension_atr": _extension_atr(row),
     }
