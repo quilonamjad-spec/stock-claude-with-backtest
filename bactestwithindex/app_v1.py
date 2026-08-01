@@ -610,8 +610,8 @@ with tab_backtest:
                 bt_aligned_display = {True: "🟢 Aligned", False: "🔴 Not Aligned"}.get(bt_aligned, "⚪ -")
                 bt_rows.append({
                     "Symbol": sym,
-                    "Entry Price (at cutoff)": round(entry_price, 2),
-                    "Chg % (as of cutoff)": bt_stock_chg,
+                    "Price (cutoff)": round(entry_price, 2),
+                    "Chg % (cutoff)": bt_stock_chg,
                     "Trade Score": result["trade_score"],
                     "Confidence": result["confidence"],
                     "Signal": result["signal_label"],
