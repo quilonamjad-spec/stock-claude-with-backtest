@@ -620,10 +620,11 @@ with tab_backtest:
                     #"Sector": index_display_name(bt_sector_idx),
                     "Sector %": bt_sector_chg,
                     "Aligned": bt_aligned_display,
+                    "Patterns": ", ".join(result.get("patterns", [])) or "-",
                     "RSI": result.get("rsi"),
                     "ADX": result.get("adx"),
                     "Extn(ATR)": result.get("extension_atr"),
-                    "Patterns": ", ".join(result.get("patterns", [])) or "-",
+                   # "Patterns": ", ".join(result.get("patterns", [])) or "-",
                     #"Candles after cutoff": len(df_after),
                 })
                 bt_symbol_data_map[sym] = df
