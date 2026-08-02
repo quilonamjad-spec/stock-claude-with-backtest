@@ -614,14 +614,14 @@ with tab_backtest:
                 bt_aligned_display = {True: "🟢 Aligned", False: "🔴 Not Aligned"}.get(bt_aligned, "⚪ -")
                 bt_rows.append({
                     "Symbol": sym,
-                    "Entry Price (at cutoff)": round(entry_price, 2),
-                    "Chg % (as of cutoff)": bt_stock_chg,
+                    "price (cutoff)": round(entry_price, 2),
+                    "cutoff %": bt_stock_chg,
                     "Trade Score": result["trade_score"],
                     "Confidence": result["confidence"],
                     "Signal": result["signal_label"],
+                    "Aligned": bt_aligned_display,
                     #"Sector": index_display_name(bt_sector_idx),
                     "Sector Chg %": bt_sector_chg,
-                    "Aligned": bt_aligned_display,
                     "RSI": result.get("rsi"),
                     "ADX": result.get("adx"),
                     "Extension (ATR)": result.get("extension_atr"),
@@ -667,7 +667,7 @@ with tab_backtest:
                 "index. 🟢 = signal agrees with both the stock's own move AND its sector "
                 "as of the cutoff; 🔴 = it doesn't; ⚪ = Neutral signal or no sector match. "
                 "Info only, not a filter -- **Sector**, **Sector Chg %** and "
-                "**Chg % (as of cutoff)** are shown so you can judge it yourself."
+                "**cutoff %** are shown so you can judge it yourself."
             )
         else:
             st.caption("Nifty 50 index context unavailable for this cutoff (Yahoo fetch issue) - filters below still work as normal.")
@@ -728,7 +728,7 @@ with tab_backtest:
             bt_direction_rows = [
                 {
                     "Symbol": sym,
-                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "Entry Price (at cutoff)"].iloc[0],
+                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "price (cutoff)"].iloc[0],
                     "Direction": bt_direction_defaults.get(sym, "Long"),
                 }
                 for sym in bt_shortlist
