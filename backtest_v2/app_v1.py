@@ -619,7 +619,7 @@ with tab_backtest:
                     "Trade Score": result["trade_score"],
                     "Confidence": result["confidence"],
                     "Signal": result["signal_label"],
-                    "Sector": index_display_name(bt_sector_idx),
+                    #"Sector": index_display_name(bt_sector_idx),
                     "Sector Chg %": bt_sector_chg,
                     "Aligned": bt_aligned_display,
                     "RSI": result.get("rsi"),
@@ -627,7 +627,7 @@ with tab_backtest:
                     "Extension (ATR)": result.get("extension_atr"),
                     "VWAP %": result.get("vwap_pct"),
                     "Patterns": ", ".join(result.get("patterns", [])) or "-",
-                    "Candles after cutoff": len(df_after),
+                    #"Candles after cutoff": len(df_after),
                 })
                 bt_symbol_data_map[sym] = df
             except Exception:
