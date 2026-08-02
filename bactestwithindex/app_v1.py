@@ -692,7 +692,7 @@ with tab_backtest:
         bt_edited = st.data_editor(
             bt_display_df,
             column_config={
-                "Simulate": st.column_config.CheckboxColumn("Add to Simulation"),
+                "Simulate": st.column_config.CheckboxColumn("Add to"),
                 "Trade Score": st.column_config.ProgressColumn("Trade Score", min_value=0, max_value=100, format="%.0f"),
                 "Confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=100, format="%.0f"),
             },
@@ -707,7 +707,7 @@ with tab_backtest:
         st.markdown("---")
         st.markdown("### Trade Simulation")
         st.caption(
-            "Tick 5-10 stocks above (Add to Simulation), tag each Long/Short, set your "
+            "Tick 5-10 stocks above (Add to), tag each Long/Short, set your "
             "stoploss/target % below, then run the replay. Same-candle ambiguity is "
             "resolved as stoploss-hit-first (worst case)."
         )
