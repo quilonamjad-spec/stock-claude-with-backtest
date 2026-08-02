@@ -177,6 +177,15 @@ def _extension_atr(row):
     return round(float((close - ema20) / atr), 2)
 
 
+def _vwap_pct(row):
+    """% distance of Close from session VWAP, for display -- e.g. +0.8 means 0.8% above VWAP."""
+    close = row.get("Close", 0)
+    vwap = row.get("VWAP", close)
+    if not vwap or vwap == 0:
+        return None
+    return round(float((close - vwap) / vwap * 100), 2)
+
+
 def score_symbol(df, active_indicators: dict, weights: dict = None):
     """
     df: OHLCV dataframe with indicator columns already computed
@@ -270,4 +279,5 @@ def score_symbol(df, active_indicators: dict, weights: dict = None):
         "close": round(float(row.get("Close", 0)), 2),
         "extension_atr": _extension_atr(row),
         "vwap": round(float(row.get("VWAP", row.get("Close", 0))), 2),
+        "vwap_pct": _vwap_pct(row),
     }

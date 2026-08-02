@@ -346,7 +346,7 @@ with tab_screener:
                     "MACD Hist": result.get("macd_hist"),
                     "Vol Ratio": result.get("vol_ratio"),
                     "Extension (ATR)": result.get("extension_atr"),
-                    "VWAP": result.get("vwap"),
+                    "VWAP %": result.get("vwap_pct"),
                     "Patterns": ", ".join(result.get("patterns", [])) or "-",
                 })
             except Exception:
@@ -625,7 +625,7 @@ with tab_backtest:
                     "RSI": result.get("rsi"),
                     "ADX": result.get("adx"),
                     "Extension (ATR)": result.get("extension_atr"),
-                    "VWAP": result.get("vwap"),
+                    "VWAP %": result.get("vwap_pct"),
                     "Patterns": ", ".join(result.get("patterns", [])) or "-",
                     "Candles after cutoff": len(df_after),
                 })
