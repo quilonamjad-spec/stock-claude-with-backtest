@@ -622,7 +622,7 @@ with tab_backtest:
                     "Aligned": bt_aligned_display,
                     "RSI": result.get("rsi"),
                     "ADX": result.get("adx"),
-                    "Extension (ATR)": result.get("extension_atr"),
+                    "Extn(ATR)": result.get("extension_atr"),
                     "Patterns": ", ".join(result.get("patterns", [])) or "-",
                     #"Candles after cutoff": len(df_after),
                 })
