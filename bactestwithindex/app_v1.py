@@ -612,19 +612,19 @@ with tab_backtest:
                 bt_aligned_display = {True: "🟢 Aligned", False: "🔴 Not Aligned"}.get(bt_aligned, "⚪ -")
                 bt_rows.append({
                     "Symbol": sym,
-                    "Entry Price (at cutoff)": round(entry_price, 2),
-                    "Chg % (as of cutoff)": bt_stock_chg,
+                    "Price (cutoff)": round(entry_price, 2),
+                    "Chg % (cutoff)": bt_stock_chg,
                     "Trade Score": result["trade_score"],
                     "Confidence": result["confidence"],
                     "Signal": result["signal_label"],
-                    "Sector": index_display_name(bt_sector_idx),
+                    #"Sector": index_display_name(bt_sector_idx),
                     "Sector Chg %": bt_sector_chg,
                     "Aligned": bt_aligned_display,
                     "RSI": result.get("rsi"),
                     "ADX": result.get("adx"),
                     "Extension (ATR)": result.get("extension_atr"),
                     "Patterns": ", ".join(result.get("patterns", [])) or "-",
-                    "Candles after cutoff": len(df_after),
+                    #"Candles after cutoff": len(df_after),
                 })
                 bt_symbol_data_map[sym] = df
             except Exception:
@@ -725,7 +725,7 @@ with tab_backtest:
             bt_direction_rows = [
                 {
                     "Symbol": sym,
-                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "Entry Price (at cutoff)"].iloc[0],
+                    "Entry Price": bt_result_df.loc[bt_result_df["Symbol"] == sym, "Price (cutoff)"].iloc[0],
                     "Direction": bt_direction_defaults.get(sym, "Long"),
                 }
                 for sym in bt_shortlist
