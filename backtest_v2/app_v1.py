@@ -380,8 +380,8 @@ with tab_screener:
         colf1, colf2, colf3 = st.columns(3)
         with colf1:
             signal_filter = st.multiselect(
-                "Filter by signal", ["Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell", "Aligned"],
-                default=["Strong Buy", "Buy", "Strong Sell", "Sell","Aligned"],
+                "Filter by signal", ["Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"],
+                default=["Strong Buy", "Buy", "Strong Sell", "Sell"],
             )
         with colf2:
             min_confidence = st.slider("Minimum confidence", 0, 100, 0)
@@ -675,8 +675,8 @@ with tab_backtest:
         bt_colf1, bt_colf2, bt_colf3 = st.columns(3)
         with bt_colf1:
             bt_signal_filter = st.multiselect(
-                "Filter by signal", ["Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell", "Aligned"],
-                default=["Strong Buy", "Buy", "Strong Sell", "Sell", "Aligned"],
+                "Filter by signal", ["Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"],
+                default=["Strong Buy", "Buy", "Strong Sell", "Sell"],
                 key="bt_signal_filter",
             )
         with bt_colf2:
