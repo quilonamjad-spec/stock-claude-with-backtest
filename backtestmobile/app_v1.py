@@ -484,6 +484,126 @@ with tab_monitoring:
             )
 
             st.markdown("---")
+            st.markdown("### 🎯 Position Tracking (live stoploss/target check)")
+            st.caption(
+                "Track specific watchlist stocks against a stoploss/target from the "
+                "moment you start tracking, refreshed manually -- the same live check "
+                "the Mobile tab does. Independent of the sidebar's chart interval: "
+                "always uses 5-minute data, since stoploss/target tracking needs to be "
+                "intraday to mean anything (works best if the sidebar interval is also "
+                "intraday, so Entry Time lines up with a real moment in the day rather "
+                "than a daily bar)."
+            )
+
+            pos_pick_df = mon_df[["Symbol", "LTP", "Trade Score", "Signal"]].copy()
+            pos_pick_df.insert(0, "Track", False)
+            pos_edited = st.data_editor(
+                pos_pick_df,
+                column_config={"Track": st.column_config.CheckboxColumn("Track")},
+                disabled=["Symbol", "LTP", "Trade Score", "Signal"],
+                hide_index=True, use_container_width=True, key="position_track_editor",
+            )
+
+            if st.button("▶ Start/Update Tracking Selected"):
+                position_list = st.session_state.get("desktop_position_list", [])
+                existing = {p["Symbol"] for p in position_list}
+                added = 0
+                for _, r in pos_edited[pos_edited["Track"]].iterrows():
+                    sym = r["Symbol"]
+                    if sym in existing or sym not in detail_data:
+                        continue
+                    df_ind_sym, _ = detail_data[sym]
+                    position_list.append({
+                        "Symbol": sym,
+                        "EntryPrice": r["LTP"],
+                        "EntryTime": df_ind_sym.index[-1],
+                        "Direction": "Long" if r["Signal"] in ("Buy", "Strong Buy") else "Short",
+                    })
+                    added += 1
+                st.session_state["desktop_position_list"] = position_list
+                if added:
+                    st.success(f"Now tracking {added} more (total {len(position_list)}).")
+                else:
+                    st.warning("Tick at least one stock above -- or the ones ticked are already being tracked.")
+
+            desktop_positions = st.session_state.get("desktop_position_list", [])
+            if not desktop_positions:
+                st.caption("Nothing tracked yet -- tick stocks above and click Start Tracking.")
+            else:
+                dp1, dp2, dp3 = st.columns(3)
+                with dp1:
+                    desktop_sl_pct = st.number_input("Stoploss %", 0.1, 5.0, 0.5, 0.1, key="desktop_sl_pct")
+                with dp2:
+                    desktop_target_pct = st.number_input("Target %", 0.1, 5.0, 1.0, 0.1, key="desktop_target_pct")
+                with dp3:
+                    st.write("")
+                    st.write("")
+                    desktop_refresh = st.button("🔄 Refresh tracked positions", type="primary")
+
+                pos_table_df = pd.DataFrame([
+                    {"Symbol": p["Symbol"], "Direction": p["Direction"],
+                     "Entry Price": p["EntryPrice"], "Entry Time": p["EntryTime"].strftime("%H:%M")}
+                    for p in desktop_positions
+                ])
+                pos_edited_dir = st.data_editor(
+                    pos_table_df,
+                    column_config={"Direction": st.column_config.SelectboxColumn("Direction", options=["Long", "Short"])},
+                    disabled=["Symbol", "Entry Price", "Entry Time"],
+                    hide_index=True, use_container_width=True, key="position_direction_editor",
+                )
+                direction_map = dict(zip(pos_edited_dir["Symbol"], pos_edited_dir["Direction"]))
+                for p in desktop_positions:
+                    p["Direction"] = direction_map.get(p["Symbol"], p["Direction"])
+
+                remove_positions = st.multiselect(
+                    "Stop tracking", [p["Symbol"] for p in desktop_positions], key="position_remove"
+                )
+                if remove_positions and st.button("Remove from tracking"):
+                    st.session_state["desktop_position_list"] = [
+                        p for p in desktop_positions if p["Symbol"] not in remove_positions
+                    ]
+                    st.rerun()
+
+                if desktop_refresh:
+                    with st.spinner("Refreshing tracked positions..."):
+                        pos_results = {}
+                        for p in desktop_positions:
+                            sym = p["Symbol"]
+                            try:
+                                fresh_df = cached_fetch_single(sym, "5m", "5d")
+                                entry_time = p["EntryTime"]
+                                _, df_after = split_at_cutoff(fresh_df, entry_time.date(), entry_time.time())
+                                pos_results[sym] = simulate_trade(
+                                    df_after, p["EntryPrice"], p["Direction"], desktop_sl_pct, desktop_target_pct
+                                )
+                            except Exception:
+                                pos_results[sym] = {"outcome": "No Data", "hit_time": None, "hit_price": None, "pl_pct": None}
+                        st.session_state["desktop_position_results"] = pos_results
+
+                desktop_pos_results = st.session_state.get("desktop_position_results", {})
+                if desktop_pos_results:
+                    outcome_emoji = {
+                        "Target Hit": "🎯 Target Hit", "Stoploss Hit": "🛑 Stoploss Hit",
+                        "No Hit (EOD)": "🟡 Still open", "No Data": "⚠️ No data",
+                    }
+                    result_rows = []
+                    for p in desktop_positions:
+                        r = desktop_pos_results.get(p["Symbol"])
+                        if r is None:
+                            continue
+                        result_rows.append({
+                            "Symbol": p["Symbol"],
+                            "Direction": p["Direction"],
+                            "Entry Price": p["EntryPrice"],
+                            "Status": outcome_emoji.get(r["outcome"], r["outcome"]),
+                            "Last Price": r["hit_price"],
+                            "P/L %": r["pl_pct"],
+                            "As of": r["hit_time"].strftime("%H:%M") if r["hit_time"] is not None else "-",
+                        })
+                    if result_rows:
+                        st.dataframe(pd.DataFrame(result_rows), hide_index=True, use_container_width=True)
+
+            st.markdown("---")
             focus_symbol = st.selectbox("Inspect a stock in detail", list(detail_data.keys()))
             if focus_symbol:
                 df_ind, result = detail_data[focus_symbol]
