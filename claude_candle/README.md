@@ -35,6 +35,22 @@ detection rules.
 | `scoring.py` | Combines patterns + context into the composite score |
 | `test_logic.py` | Quick sanity test using synthetic data (no internet needed) |
 
+## NSE / Indian market support
+
+Pick **India (NSE)** or **India (BSE)** from the *Market* dropdown in the
+sidebar and type plain symbols (`RELIANCE`, `TCS`, `INFY`, `HDFCBANK`,
+`ICICIBANK`, ...) — the `.NS` / `.BO` suffix Yahoo Finance requires is added
+automatically. You can also type the full suffixed symbol yourself if you
+prefer.
+
+## Point-in-time analysis
+
+Tick **"Analyze as of a specific date/time"** in the sidebar to score the
+candle as it stood on a chosen day (and time, for intraday intervals)
+instead of always scoring the most recent candle. This is useful for
+reviewing "what would the app have said on this date" without any lookahead
+— the chart and score only ever use data up to that candle.
+
 ## Run locally
 
 ```bash

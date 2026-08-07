@@ -85,9 +85,9 @@ def _support_resistance_bonus(bias: str, close: float, support: float, resistanc
     return 0.0
 
 
-def score_latest(df: pd.DataFrame, ticker: str) -> ScoreResult:
-    """Score the most recent (last) candle in df. df must already have indicators."""
-    i = len(df) - 1
+def score_at(df: pd.DataFrame, ticker: str, i: int) -> ScoreResult:
+    """Score the candle at integer position i. df must already have indicators.
+    Only uses data up to and including i — never looks ahead."""
     hits = detect_patterns(df, i)
     row = df.iloc[i]
     trend = row.get("trend", "unknown")
@@ -144,3 +144,8 @@ def score_latest(df: pd.DataFrame, ticker: str) -> ScoreResult:
         rsi=round(float(rsi), 1) if not pd.isna(rsi) else 50.0,
         vol_ratio=round(float(vol_ratio), 2) if not pd.isna(vol_ratio) else 1.0,
     )
+
+
+def score_latest(df: pd.DataFrame, ticker: str) -> ScoreResult:
+    """Score the most recent (last) candle in df. Convenience wrapper around score_at."""
+    return score_at(df, ticker, len(df) - 1)
