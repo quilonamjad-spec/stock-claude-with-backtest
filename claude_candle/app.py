@@ -46,7 +46,10 @@ with st.sidebar:
         help="Intraday intervals (1h/30m/15m) are only available for roughly the last 60 days from Yahoo, "
              "which fits within a 1mo/3mo window.",
     )
-    min_score_filter = st.slider("Only show |score| ≥", 0, 100, 0)
+    min_score_filter = st.slider(
+        "Only show conviction ≥ (distance from neutral 50)", 0, 50, 0,
+        help="e.g. 20 hides anything scoring between 30 and 70 (i.e. weak/neutral signals).",
+    )
 
     st.divider()
     st.header("Point-in-time analysis")
@@ -133,7 +136,7 @@ if results:
 
     table_df = pd.DataFrame(rows)
     if min_score_filter > 0:
-        table_df = table_df[table_df["Score"].abs() >= min_score_filter]
+        table_df = table_df[(table_df["Score"] - 50).abs() >= min_score_filter]
     table_df = table_df.sort_values("Score", ascending=False, na_position="last")
 
     def color_verdict(val):
@@ -165,10 +168,11 @@ if results:
 
         st.caption(f"Analyzed candle: **{r.date}** (candle {analyzed_i + 1} of {len(df_ind)} in the loaded window)")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Score", r.score, r.verdict)
+        col1.metric("Score (0-100, 50=neutral)", f"{r.score}", r.verdict)
         col2.metric("Close", f"{currency}{r.close:.2f}")
         col3.metric("Trend", r.trend)
         col4.metric("RSI", r.rsi)
+        st.progress(r.score / 100)
 
         # Candlestick chart with moving averages — only show data up to the analyzed candle
         # so the chart matches exactly what the score "saw" (no lookahead)

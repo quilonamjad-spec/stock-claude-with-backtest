@@ -8,6 +8,28 @@ with a plain-English breakdown of why.
 
 ⚠️ **Educational tool only. Not financial advice.**
 
+## Scoring scale
+
+Every candle gets a score from **0 to 100**:
+
+- **50 = neutral** — no clear signal
+- **100 = strongest bullish conviction**
+- **0 = strongest bearish conviction**
+
+| Score range | Verdict |
+|---|---|
+| 80–100 | Strong Buy |
+| 60–79 | Buy |
+| 41–59 | Neutral |
+| 21–40 | Sell |
+| 0–20 | Strong Sell |
+
+Each detected pattern has a base weight (5 for a plain Doji up to 24 for
+Three White Soldiers/Black Crows) that's then adjusted by trend alignment,
+volume, momentum (RSI/MACD), and proximity to support/resistance — see
+`scoring.py` for the exact formula, and the "Why this score" section in the
+app for a line-by-line breakdown of any given score.
+
 ## How the scoring works
 
 Raw candlestick patterns are a weak signal on their own, so each detected

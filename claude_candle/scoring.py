@@ -1,8 +1,13 @@
 """
 scoring.py
 Combines detected candlestick patterns with trend, volume, momentum,
-and support/resistance context into one composite score from -100 (strong
-sell) to +100 (strong buy), plus a human-readable explanation of why.
+and support/resistance context into one composite score on a 0-100 scale:
+
+    0   = strongest bearish conviction
+    50  = neutral / no edge either way
+    100 = strongest bullish conviction
+
+Plus a human-readable explanation of exactly how each number was reached.
 """
 from dataclasses import dataclass, field
 from typing import List
@@ -10,12 +15,15 @@ import pandas as pd
 
 from patterns import detect_patterns, PatternHit
 
+NEUTRAL = 50.0
+MAX_DEVIATION = 50.0  # score is clamped to NEUTRAL +/- MAX_DEVIATION -> [0, 100]
+
 
 @dataclass
 class ScoreResult:
     ticker: str
     date: pd.Timestamp
-    score: float
+    score: float          # 0-100, 50 = neutral
     verdict: str
     patterns: List[PatternHit] = field(default_factory=list)
     reasons: List[str] = field(default_factory=list)
@@ -53,41 +61,56 @@ def _volume_multiplier(vol_ratio: float) -> float:
     return 0.75
 
 
-def _momentum_bonus(bias: str, rsi: float, macd_hist: float) -> float:
+def _momentum_bonus(bias: str, rsi: float, macd_hist: float, base_weight: float) -> float:
+    """Scaled to the pattern's own base_weight so a weak pattern (e.g. spinning top, weight 8)
+    can't get boosted almost as high as a strong one (e.g. three soldiers, weight 24) just
+    because RSI happens to be extreme."""
     bonus = 0.0
     if pd.isna(rsi):
         rsi = 50
     if bias == "bullish":
         if rsi < 30:
-            bonus += 8       # oversold supports a bullish reversal
+            bonus += base_weight * 0.25    # oversold supports a bullish reversal
         if macd_hist is not None and not pd.isna(macd_hist) and macd_hist > 0:
-            bonus += 5
+            bonus += base_weight * 0.15
     elif bias == "bearish":
         if rsi > 70:
-            bonus += 8       # overbought supports a bearish reversal
+            bonus += base_weight * 0.25    # overbought supports a bearish reversal
         if macd_hist is not None and not pd.isna(macd_hist) and macd_hist < 0:
-            bonus += 5
+            bonus += base_weight * 0.15
     return bonus
 
 
-def _support_resistance_bonus(bias: str, close: float, support: float, resistance: float) -> float:
+def _support_resistance_bonus(bias: str, close: float, support: float, resistance: float, base_weight: float) -> float:
     if pd.isna(support) or pd.isna(resistance) or resistance == support:
         return 0.0
     band = resistance - support
     if bias == "bullish":
         dist_to_support = (close - support) / band
         if dist_to_support < 0.15:
-            return 6.0
+            return base_weight * 0.20
     elif bias == "bearish":
         dist_to_resistance = (resistance - close) / band
         if dist_to_resistance < 0.15:
-            return 6.0
+            return base_weight * 0.20
     return 0.0
 
 
+def _verdict(score: float) -> str:
+    if score >= 80:
+        return "Strong Buy"
+    if score >= 60:
+        return "Buy"
+    if score > 40:
+        return "Neutral"
+    if score > 20:
+        return "Sell"
+    return "Strong Sell"
+
+
 def score_at(df: pd.DataFrame, ticker: str, i: int) -> ScoreResult:
-    """Score the candle at integer position i. df must already have indicators.
-    Only uses data up to and including i — never looks ahead."""
+    """Score the candle at integer position i, on a 0-100 scale (50 = neutral).
+    df must already have indicators. Only uses data up to and including i — never looks ahead."""
     hits = detect_patterns(df, i)
     row = df.iloc[i]
     trend = row.get("trend", "unknown")
@@ -98,44 +121,41 @@ def score_at(df: pd.DataFrame, ticker: str, i: int) -> ScoreResult:
     resistance = row.get("resistance_20", float("nan"))
     close = row.get("close", 0.0)
 
-    total_score = 0.0
+    deviation = 0.0  # signed distance from neutral (50): positive = bullish, negative = bearish
     reasons = []
 
     if not hits:
-        reasons.append("No recognizable candlestick pattern on the latest candle.")
+        reasons.append("No recognizable candlestick pattern on this candle — score stays at neutral (50).")
+
     for hit in hits:
         tmult = _trend_multiplier(hit.bias, trend)
         vmult = _volume_multiplier(vol_ratio)
-        mbonus = _momentum_bonus(hit.bias, rsi, macd_hist)
-        srbonus = _support_resistance_bonus(hit.bias, close, support, resistance)
+        mbonus = _momentum_bonus(hit.bias, rsi, macd_hist, hit.base_weight)
+        srbonus = _support_resistance_bonus(hit.bias, close, support, resistance, hit.base_weight)
 
         raw = hit.base_weight * tmult * vmult + mbonus + srbonus
         signed = raw if hit.bias == "bullish" else (-raw if hit.bias == "bearish" else 0)
-        total_score += signed
+        deviation += signed
 
+        direction = "bullish" if hit.bias == "bullish" else ("bearish" if hit.bias == "bearish" else "neutral")
         reasons.append(
-            f"{hit.name} ({hit.bias}, {hit.strength}): base {hit.base_weight:.0f} "
+            f"{hit.name} ({direction}, {hit.strength}): base {hit.base_weight:.0f} "
             f"× trend[{trend}] x{tmult:.2f} × volume x{vmult:.2f} "
-            f"+ momentum {mbonus:.0f} + S/R {srbonus:.0f} → {signed:+.1f}"
+            f"+ momentum {mbonus:.0f} + S/R {srbonus:.0f} → {signed:+.1f} pts "
+            f"{'toward 100 (bullish)' if signed > 0 else 'toward 0 (bearish)' if signed < 0 else ''}"
         )
 
-    total_score = max(-100, min(100, total_score))
+    deviation = max(-MAX_DEVIATION, min(MAX_DEVIATION, deviation))
+    score = round(NEUTRAL + deviation, 1)
+    verdict = _verdict(score)
 
-    if total_score >= 40:
-        verdict = "Strong Buy"
-    elif total_score >= 15:
-        verdict = "Buy"
-    elif total_score > -15:
-        verdict = "Neutral"
-    elif total_score > -40:
-        verdict = "Sell"
-    else:
-        verdict = "Strong Sell"
+    if hits:
+        reasons.append(f"Combined deviation from neutral: {deviation:+.1f} → final score {score}/100 ({verdict}).")
 
     return ScoreResult(
         ticker=ticker,
         date=df.index[i],
-        score=round(total_score, 1),
+        score=score,
         verdict=verdict,
         patterns=hits,
         reasons=reasons,
