@@ -17,8 +17,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from data_fetcher import fetch_ohlcv_batch
-from indicators import add_all_indicators
+from data_fetcher import fetch_ohlcv_batch, trim_to_period
+from indicators import add_all_indicators, smooth_session_edges
 from scoring import score_at
 
 st.set_page_config(page_title="Candlestick Pattern Screener", layout="wide")
@@ -28,6 +28,8 @@ st.caption(
     "Scores stocks by combining candlestick pattern recognition with trend, "
     "volume, momentum, and support/resistance context. Educational tool only — not financial advice."
 )
+
+INTRADAY_INTERVALS = {"1h", "30m", "15m", "5m"}
 
 NSE_DEFAULTS = "RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK"
 US_DEFAULTS = "AAPL, MSFT, NVDA, TSLA, AMZN"
@@ -112,9 +114,16 @@ if run_scan:
     if use_as_of:
         as_of_dt = datetime.combine(as_of_date, as_of_time or dtime(23, 59))
 
+    # For short intraday display windows (today / last 5 days), fetch extra history behind
+    # the scenes so indicators (SMA20, RSI14, etc.) have enough warm-up data and so the
+    # first candles of the day aren't sitting on NaN indicators. We trim back down to the
+    # requested display window AFTER indicators are computed.
+    needs_warmup = interval in INTRADAY_INTERVALS and period in ("1d", "5d")
+    fetch_period = "1mo" if needs_warmup else period
+
     status = st.empty()
     status.info(f"Fetching {len(tickers)} ticker(s) in batches — this is much faster than one-by-one...")
-    ohlcv_by_ticker = fetch_ohlcv_batch(tuple(tickers), period=period, interval=interval)
+    ohlcv_by_ticker = fetch_ohlcv_batch(tuple(tickers), period=fetch_period, interval=interval)
     status.empty()
 
     progress = st.progress(0.0, text="Scoring...")
@@ -124,7 +133,20 @@ if run_scan:
             if df.empty or len(df) < 5:
                 st.session_state.scan_results[t] = {"error": "Not enough data returned."}
             else:
+                if interval in INTRADAY_INTERVALS:
+                    # smooth noisy opening/closing candles per trading day before scoring
+                    df = smooth_session_edges(df, n=3)
+
                 df_ind = add_all_indicators(df)
+                if needs_warmup:
+                    # now that indicators have their warm-up history, cut back to just
+                    # the display window the user actually asked for (e.g. today only)
+                    df_ind = trim_to_period(df_ind, period)
+
+                if df_ind.empty:
+                    st.session_state.scan_results[t] = {"error": "No candles left after trimming to the selected period."}
+                    progress.progress((idx + 1) / max(len(tickers), 1))
+                    continue
 
                 # make index tz-naive for comparison (Yahoo returns tz-aware intraday timestamps)
                 idx_naive = df_ind.index.tz_localize(None) if df_ind.index.tz is not None else df_ind.index

@@ -28,7 +28,7 @@ def fetch_ohlcv(ticker: str, period: str = "1mo", interval: str = "1d", max_retr
                 df.columns = [str(c).lower() for c in df.columns]
                 keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
                 cleaned = df[keep].dropna()
-                return _trim_to_period(cleaned, period)
+                return trim_to_period(cleaned, period)
             last_err = "No data returned (empty response)."
         except Exception as e:
             last_err = str(e)
@@ -48,16 +48,15 @@ def _clean_single(df: pd.DataFrame) -> pd.DataFrame:
     return df[keep].dropna()
 
 
-# how many *trading days* each period should keep — used as a belt-and-braces trim below
+# how many *trading days* each period should keep — used by trim_to_period below
 _PERIOD_TRADING_DAYS = {"1d": 1, "5d": 5}
 
 
-def _trim_to_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
-    """Yahoo's batched/group_by='ticker' endpoint doesn't always honor `period` precisely
-    for intraday intervals — it can silently return more history than requested (e.g. a
-    full month instead of just today). This trims the result down to the actual number of
-    most-recent trading days the period implies, so '1d' truly means "just today's session".
-    No-op for periods like '1mo'/'3mo' where over-fetching isn't a practical issue."""
+def trim_to_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Trims a DataFrame down to the most-recent N trading days that `period` implies
+    (e.g. '1d' -> just the latest trading day, '5d' -> the last 5). No-op for periods
+    like '1mo'/'3mo'. Used by the caller AFTER indicators have been computed on a longer
+    fetch window, so short display periods don't sacrifice indicator warm-up."""
     n_days = _PERIOD_TRADING_DAYS.get(period)
     if n_days is None or df.empty:
         return df
@@ -76,6 +75,11 @@ def fetch_ohlcv_batch(
     """Fetch OHLCV for many tickers efficiently — a handful of batched calls instead of
     one call per ticker. Essential for scanning the full Nifty 500 without getting
     rate-limited. Returns {ticker: DataFrame}; a ticker with no data maps to an empty DataFrame.
+
+    NOTE: this does NOT trim to a short display period internally — callers that want a
+    short display window (e.g. today's 5m candles) should request a longer `period` here
+    (so indicators have warm-up data + prior-session context) and call trim_to_period()
+    themselves after computing indicators.
     """
     results: dict = {}
     tickers = list(tickers)
@@ -110,8 +114,7 @@ def fetch_ohlcv_batch(
                     df_t = data[t]
                 else:
                     df_t = pd.DataFrame()
-                cleaned = _clean_single(df_t) if not df_t.empty else pd.DataFrame()
-                results[t] = _trim_to_period(cleaned, period)
+                results[t] = _clean_single(df_t) if not df_t.empty else pd.DataFrame()
             except Exception:
                 results[t] = pd.DataFrame()
 

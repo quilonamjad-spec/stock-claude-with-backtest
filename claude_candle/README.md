@@ -84,6 +84,22 @@ Set **History period** to `1d` and **Candle interval** to `5m` (or `15m`,
 "Analyze as of a specific date/time" to freeze the analysis at a particular
 moment during the session (e.g. "what did the 10:15 AM candle look like").
 
+**Behind the scenes**, when you pick a short intraday window like `1d`/`5d`:
+
+1. The app quietly fetches a full month of intraday history, not just today —
+   this gives indicators like RSI(14) and SMA(20) enough prior candles to be
+   valid *from the market open*, instead of sitting on NaN for the first
+   ~15 candles of the day.
+2. It smooths the day-transition boundary specifically: the **last 3 candles of
+   the most recent complete trading day** (yesterday's close) and the
+   **first 3 candles of today** are each aggregated into one representative
+   candle — that's the noisy overnight-gap zone (closing-settlement flurry
+   into opening-auction volatility). Every earlier day in the lookback
+   history is left completely raw/untouched — it's only there to give
+   indicators their warm-up, so there's no need to alter it.
+3. Only then does it trim back down to just the window you asked for
+   (today, or the last 5 days) for scoring and display.
+
 ## Point-in-time analysis
 
 Tick **"Analyze as of a specific date/time"** in the sidebar to score the
