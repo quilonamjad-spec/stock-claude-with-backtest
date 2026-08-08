@@ -27,7 +27,8 @@ def fetch_ohlcv(ticker: str, period: str = "1mo", interval: str = "1d", max_retr
                     df.columns = [c[0] for c in df.columns]
                 df.columns = [str(c).lower() for c in df.columns]
                 keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
-                return df[keep].dropna()
+                cleaned = df[keep].dropna()
+                return _trim_to_period(cleaned, period)
             last_err = "No data returned (empty response)."
         except Exception as e:
             last_err = str(e)
@@ -45,6 +46,26 @@ def _clean_single(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [str(c).lower() for c in df.columns]
     keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
     return df[keep].dropna()
+
+
+# how many *trading days* each period should keep — used as a belt-and-braces trim below
+_PERIOD_TRADING_DAYS = {"1d": 1, "5d": 5}
+
+
+def _trim_to_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Yahoo's batched/group_by='ticker' endpoint doesn't always honor `period` precisely
+    for intraday intervals — it can silently return more history than requested (e.g. a
+    full month instead of just today). This trims the result down to the actual number of
+    most-recent trading days the period implies, so '1d' truly means "just today's session".
+    No-op for periods like '1mo'/'3mo' where over-fetching isn't a practical issue."""
+    n_days = _PERIOD_TRADING_DAYS.get(period)
+    if n_days is None or df.empty:
+        return df
+    idx = df.index.tz_localize(None) if df.index.tz is not None else df.index
+    unique_dates = sorted(set(idx.date))
+    keep_dates = set(unique_dates[-n_days:])
+    mask = [d in keep_dates for d in idx.date]
+    return df[mask]
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -89,7 +110,8 @@ def fetch_ohlcv_batch(
                     df_t = data[t]
                 else:
                     df_t = pd.DataFrame()
-                results[t] = _clean_single(df_t) if not df_t.empty else pd.DataFrame()
+                cleaned = _clean_single(df_t) if not df_t.empty else pd.DataFrame()
+                results[t] = _trim_to_period(cleaned, period)
             except Exception:
                 results[t] = pd.DataFrame()
 

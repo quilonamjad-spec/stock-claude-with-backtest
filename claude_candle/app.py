@@ -192,14 +192,20 @@ if results:
 
     # ---------------- Detail view ----------------
     st.subheader("Detail View")
-    valid_tickers = [t for t in results if "error" not in results[t]]
+    # Only offer tickers that survived the conviction filter above (and have no error) —
+    # keeps the dropdown in sync with whatever the table is currently showing.
+    valid_tickers = [t for t in table_df["Ticker"] if "error" not in results[t]]
     if valid_tickers:
-        selected = st.selectbox("Select a ticker to inspect", valid_tickers)
+        selected = st.selectbox(
+            f"Select a ticker to inspect ({len(valid_tickers)} match the current filter)",
+            valid_tickers,
+        )
         data = results[selected]
         df_ind, r, analyzed_i = data["df"], data["result"], data["i"]
         currency = "₹" if selected.endswith((".NS", ".BO")) else "$"
 
         st.caption(f"Analyzed candle: **{r.date}** (candle {analyzed_i + 1} of {len(df_ind)} in the loaded window)")
+        st.caption(f"Data loaded: {len(df_ind)} candles from {df_ind.index[0]} to {df_ind.index[-1]}")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Score (0-100, 50=neutral)", f"{r.score}", r.verdict)
         col2.metric("Close", f"{currency}{r.close:.2f}")
@@ -235,6 +241,8 @@ if results:
         st.markdown("**Why this score:**")
         for reason in r.reasons:
             st.write("• " + reason)
+    else:
+        st.warning("No tickers match the current conviction filter — lower the slider in the sidebar to see details.")
 else:
     st.info("Enter tickers in the sidebar and click **Scan Watchlist** to begin.")
 
