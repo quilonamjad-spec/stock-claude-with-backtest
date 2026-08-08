@@ -1,19 +1,26 @@
 """
 scoring.py
 Composite score on a 0-100 scale (50 = neutral, 100 = max bullish, 0 = max
-bearish), built from THREE INDEPENDENT, WEIGHTED components:
+bearish), built from SIX INDEPENDENT, WEIGHTED components spanning the four
+main technical-analysis categories:
 
-    Candle Pattern  — pattern shape + trend alignment + volume + S/R proximity
-    RSI             — overbought/oversold momentum
-    MACD            — trend-momentum via the MACD histogram (ATR-normalized)
+    Category    Component        What it measures
+    ---------   ---------------   -----------------------------------------
+    Pattern     Candle Pattern    Shape + trend alignment + volume + S/R
+    Momentum    RSI               Overbought/oversold
+    Momentum    MACD              Histogram direction/strength (ATR-normalized)
+    Trend       Moving Averages   Price vs EMA20 + EMA20-vs-EMA50 cross
+    Volatility  Bollinger Bands   %B position (mean-reversion framing)
+    Volume      VWAP              Price vs volume-weighted average price
 
 Each component always produces its own 0-100 sub-score regardless of what
-the others say — this is the key fix over the old design, where RSI/MACD
-only mattered if a candlestick pattern happened to fire on that exact
-candle. Now every candle gets a real, continuously-varying score.
+the others say — no component's contribution depends on any other firing.
+That's the key property that keeps scores continuously informative instead
+of sitting at neutral whenever, say, no candlestick pattern happens to be
+present on a given candle.
 
-The three components are blended by user-adjustable weights that sum to
-100 (defaults: Candle 40 / RSI 30 / MACD 30) — see DEFAULT_WEIGHTS.
+The components are blended by user-adjustable weights that sum to 100 (see
+DEFAULT_WEIGHTS) — any subset of components can be dialed up or down freely.
 """
 import math
 from dataclasses import dataclass, field
@@ -25,7 +32,26 @@ from patterns import detect_patterns, PatternHit
 NEUTRAL = 50.0
 MAX_CANDLE_DEVIATION = 50.0  # candle component is clamped to NEUTRAL +/- this -> [0, 100]
 
-DEFAULT_WEIGHTS: Dict[str, float] = {"candle": 40, "rsi": 30, "macd": 30}
+# Balanced default: Pattern recognition gets the single biggest share since it's the
+# most specific signal; the two Momentum components together (30%) get similar total
+# weight to before; Trend, Volatility, and Volume round out the picture.
+DEFAULT_WEIGHTS: Dict[str, float] = {
+    "candle": 25,
+    "rsi": 15,
+    "macd": 15,
+    "trend": 20,
+    "volatility": 10,
+    "volume": 15,
+}
+
+COMPONENT_LABELS = {
+    "candle": "Candle Pattern",
+    "rsi": "RSI",
+    "macd": "MACD",
+    "trend": "Trend (MA)",
+    "volatility": "Volatility (Bollinger)",
+    "volume": "Volume (VWAP)",
+}
 
 
 @dataclass
@@ -40,7 +66,7 @@ class ScoreResult:
     trend: str = "unknown"
     rsi: float = 50.0
     vol_ratio: float = 1.0
-    component_scores: Dict[str, float] = field(default_factory=dict)  # {"candle":.., "rsi":.., "macd":..}
+    component_scores: Dict[str, float] = field(default_factory=dict)
 
 
 def _trend_multiplier(bias: str, trend: str) -> float:
@@ -112,9 +138,9 @@ def _verdict(score: float) -> str:
 
 
 # =========================================================
-# COMPONENT 1: Candle Pattern (shape + trend + volume + S/R)
+# COMPONENT: Candle Pattern (shape + trend + volume + S/R)
 # =========================================================
-def _candle_component(df: pd.DataFrame, i: int, trend: float, vol_ratio: float,
+def _candle_component(df: pd.DataFrame, i: int, trend: str, vol_ratio: float,
                        support: float, resistance: float, close: float):
     hits = detect_patterns(df, i)
     reasons = []
@@ -146,7 +172,7 @@ def _candle_component(df: pd.DataFrame, i: int, trend: float, vol_ratio: float,
 
 
 # =========================================================
-# COMPONENT 2: RSI
+# COMPONENT: RSI
 # =========================================================
 def _rsi_component(rsi: float):
     if pd.isna(rsi):
@@ -160,7 +186,7 @@ def _rsi_component(rsi: float):
 
 
 # =========================================================
-# COMPONENT 3: MACD (histogram, normalized by ATR so it's comparable across stocks)
+# COMPONENT: MACD (histogram, normalized by ATR so it's comparable across stocks)
 # =========================================================
 def _macd_component(macd_hist: float, atr: float):
     if pd.isna(macd_hist):
@@ -176,18 +202,78 @@ def _macd_component(macd_hist: float, atr: float):
     return score, reason
 
 
+# =========================================================
+# COMPONENT: Trend (Moving Averages) — price vs EMA20, plus EMA20-vs-EMA50 cross,
+# both ATR-normalized so the same formula shape works across any stock's price scale
+# =========================================================
+def _trend_ma_component(close: float, ema20: float, ema50: float, atr: float):
+    if pd.isna(ema20) or pd.isna(ema50):
+        return NEUTRAL, "Not enough history yet for EMA20/EMA50 — trend component stays neutral (50)."
+    if pd.isna(atr) or atr == 0:
+        atr = 1.0
+
+    price_vs_ema20 = math.tanh((close - ema20) / (0.5 * atr))
+    ema20_vs_ema50 = math.tanh((ema20 - ema50) / (0.5 * atr))
+    combined = 0.6 * price_vs_ema20 + 0.4 * ema20_vs_ema50
+    score = max(0.0, min(100.0, 50.0 + 50.0 * combined))
+
+    reason = (
+        f"Close {'above' if close >= ema20 else 'below'} EMA20 ({ema20:.2f}); "
+        f"EMA20 {'above' if ema20 >= ema50 else 'below'} EMA50 ({ema50:.2f}) → "
+        f"trend component {score:.1f}/100"
+    )
+    return score, reason
+
+
+# =========================================================
+# COMPONENT: Volatility (Bollinger Bands) — %B framed as mean-reversion:
+# near the upper band leans bearish (overextended), near the lower band leans bullish
+# =========================================================
+def _volatility_bb_component(close: float, bb_upper: float, bb_lower: float):
+    if pd.isna(bb_upper) or pd.isna(bb_lower) or bb_upper == bb_lower:
+        return NEUTRAL, "Not enough history yet for Bollinger Bands — volatility component stays neutral (50)."
+
+    pct_b = (close - bb_lower) / (bb_upper - bb_lower)
+    pct_b_clamped = max(0.0, min(1.0, pct_b))
+    score = 100.0 - pct_b_clamped * 100.0
+
+    reason = (
+        f"%B = {pct_b:.2f} (0 = at lower band, 1 = at upper band) → "
+        f"volatility component {score:.1f}/100 (near upper band leans bearish/overextended, "
+        f"near lower band leans bullish/oversold)"
+    )
+    return score, reason
+
+
+# =========================================================
+# COMPONENT: Volume (VWAP) — price vs volume-weighted average price, ATR-normalized
+# =========================================================
+def _volume_vwap_component(close: float, vwap: float, atr: float):
+    if pd.isna(vwap):
+        return NEUTRAL, "VWAP not available yet — volume component stays neutral (50)."
+    if pd.isna(atr) or atr == 0:
+        atr = 1.0
+
+    signal = math.tanh((close - vwap) / (0.5 * atr))
+    score = max(0.0, min(100.0, 50.0 + 50.0 * signal))
+    reason = (
+        f"Close {'above' if close >= vwap else 'below'} VWAP ({vwap:.2f}) → "
+        f"volume component {score:.1f}/100 (above VWAP leans bullish institutional flow)"
+    )
+    return score, reason
+
+
 def score_at(df: pd.DataFrame, ticker: str, i: int, weights: Optional[Dict[str, float]] = None) -> ScoreResult:
     """Score the candle at integer position i, on a 0-100 scale (50 = neutral).
     df must already have indicators. Only uses data up to and including i — never looks ahead.
 
-    weights: optional dict like {"candle": 40, "rsi": 30, "macd": 30} — any positive
-    numbers, they're normalized to sum to 100 automatically. Defaults to DEFAULT_WEIGHTS.
+    weights: optional dict with any subset of {"candle","rsi","macd","trend","volatility",
+    "volume"} — any positive numbers, normalized to sum to 100 automatically. Missing keys
+    default to 0. Defaults to DEFAULT_WEIGHTS.
     """
     weights = dict(weights) if weights else dict(DEFAULT_WEIGHTS)
     total_w = sum(max(0.0, w) for w in weights.values()) or 1.0
-    w_candle = max(0.0, weights.get("candle", 0)) / total_w * 100
-    w_rsi = max(0.0, weights.get("rsi", 0)) / total_w * 100
-    w_macd = max(0.0, weights.get("macd", 0)) / total_w * 100
+    w = {k: max(0.0, weights.get(k, 0)) / total_w * 100 for k in COMPONENT_LABELS}
 
     row = df.iloc[i]
     trend = row.get("trend", "unknown")
@@ -198,26 +284,51 @@ def score_at(df: pd.DataFrame, ticker: str, i: int, weights: Optional[Dict[str, 
     support = row.get("support_20", float("nan"))
     resistance = row.get("resistance_20", float("nan"))
     close = row.get("close", 0.0)
+    ema20 = row.get("ema_20", float("nan"))
+    ema50 = row.get("ema_50", float("nan"))
+    bb_upper = row.get("bb_upper", float("nan"))
+    bb_lower = row.get("bb_lower", float("nan"))
+    vwap = row.get("vwap", float("nan"))
 
     candle_score, candle_reasons, hits = _candle_component(df, i, trend, vol_ratio, support, resistance, close)
     rsi_score, rsi_reason = _rsi_component(rsi)
     macd_score, macd_reason = _macd_component(macd_hist, atr)
+    trend_score, trend_reason = _trend_ma_component(close, ema20, ema50, atr)
+    vol_bb_score, vol_bb_reason = _volatility_bb_component(close, bb_upper, bb_lower)
+    vwap_score, vwap_reason = _volume_vwap_component(close, vwap, atr)
 
-    final = (w_candle * candle_score + w_rsi * rsi_score + w_macd * macd_score) / 100.0
+    component_scores = {
+        "candle": candle_score, "rsi": rsi_score, "macd": macd_score,
+        "trend": trend_score, "volatility": vol_bb_score, "volume": vwap_score,
+    }
+
+    final = sum(w[k] * component_scores[k] for k in COMPONENT_LABELS) / 100.0
     final = round(max(0.0, min(100.0, final)), 1)
     verdict = _verdict(final)
 
-    reasons = [f"── Candle Pattern component (weight {w_candle:.0f}%) ──"]
+    reasons = [f"── {COMPONENT_LABELS['candle']} component (weight {w['candle']:.0f}%) ──"]
     reasons += candle_reasons
-    reasons.append(f"Candle component: {candle_score:.1f}/100 → contributes {w_candle / 100 * candle_score:+.1f} pts")
+    reasons.append(f"Candle component: {candle_score:.1f}/100 → contributes {w['candle'] / 100 * candle_score:+.1f} pts")
 
-    reasons.append(f"── RSI component (weight {w_rsi:.0f}%) ──")
+    reasons.append(f"── {COMPONENT_LABELS['rsi']} component (weight {w['rsi']:.0f}%) ──")
     reasons.append(rsi_reason)
-    reasons.append(f"RSI component contributes {w_rsi / 100 * rsi_score:+.1f} pts")
+    reasons.append(f"RSI component contributes {w['rsi'] / 100 * rsi_score:+.1f} pts")
 
-    reasons.append(f"── MACD component (weight {w_macd:.0f}%) ──")
+    reasons.append(f"── {COMPONENT_LABELS['macd']} component (weight {w['macd']:.0f}%) ──")
     reasons.append(macd_reason)
-    reasons.append(f"MACD component contributes {w_macd / 100 * macd_score:+.1f} pts")
+    reasons.append(f"MACD component contributes {w['macd'] / 100 * macd_score:+.1f} pts")
+
+    reasons.append(f"── {COMPONENT_LABELS['trend']} component (weight {w['trend']:.0f}%) ──")
+    reasons.append(trend_reason)
+    reasons.append(f"Trend component contributes {w['trend'] / 100 * trend_score:+.1f} pts")
+
+    reasons.append(f"── {COMPONENT_LABELS['volatility']} component (weight {w['volatility']:.0f}%) ──")
+    reasons.append(vol_bb_reason)
+    reasons.append(f"Volatility component contributes {w['volatility'] / 100 * vol_bb_score:+.1f} pts")
+
+    reasons.append(f"── {COMPONENT_LABELS['volume']} component (weight {w['volume']:.0f}%) ──")
+    reasons.append(vwap_reason)
+    reasons.append(f"Volume component contributes {w['volume'] / 100 * vwap_score:+.1f} pts")
 
     reasons.append(f"── Final blended score: {final}/100 → {verdict} ──")
 
@@ -232,7 +343,7 @@ def score_at(df: pd.DataFrame, ticker: str, i: int, weights: Optional[Dict[str, 
         trend=trend,
         rsi=round(float(rsi), 1) if not pd.isna(rsi) else 50.0,
         vol_ratio=round(float(vol_ratio), 2) if not pd.isna(vol_ratio) else 1.0,
-        component_scores={"candle": round(candle_score, 1), "rsi": round(rsi_score, 1), "macd": round(macd_score, 1)},
+        component_scores={k: round(v, 1) for k, v in component_scores.items()},
     )
 
 

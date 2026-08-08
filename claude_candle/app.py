@@ -106,14 +106,24 @@ with st.sidebar:
     st.header("Scoring weights")
     st.caption(
         "How much each component contributes to the final score. They always sum to "
-        "100% — move one and the others rebalance proportionally."
+        "100% — move one and the others rebalance proportionally, keeping their "
+        "relative ratio to each other."
     )
 
-    WEIGHT_KEYS = ["w_candle", "w_rsi", "w_macd"]
+    # component key -> (session_state key, slider label)
+    COMPONENT_SLIDERS = [
+        ("candle", "w_candle", "Candle Pattern"),
+        ("rsi", "w_rsi", "RSI"),
+        ("macd", "w_macd", "MACD"),
+        ("trend", "w_trend", "Trend (Moving Averages)"),
+        ("volatility", "w_volatility", "Volatility (Bollinger Bands)"),
+        ("volume", "w_volume", "Volume (VWAP)"),
+    ]
+    WEIGHT_KEYS = [sk for _, sk, _ in COMPONENT_SLIDERS]
+
     if "w_candle" not in st.session_state:
-        st.session_state.w_candle = DEFAULT_WEIGHTS["candle"]
-        st.session_state.w_rsi = DEFAULT_WEIGHTS["rsi"]
-        st.session_state.w_macd = DEFAULT_WEIGHTS["macd"]
+        for comp_key, state_key, _ in COMPONENT_SLIDERS:
+            st.session_state[state_key] = DEFAULT_WEIGHTS[comp_key]
 
     def _rebalance_weights(changed_key: str):
         other_keys = [k for k in WEIGHT_KEYS if k != changed_key]
@@ -133,23 +143,19 @@ with st.sidebar:
         if drift != 0:
             st.session_state[other_keys[0]] += drift
 
-    st.slider("Candle Pattern weight (%)", 0, 100, key="w_candle",
-              on_change=_rebalance_weights, args=("w_candle",))
-    st.slider("RSI weight (%)", 0, 100, key="w_rsi",
-              on_change=_rebalance_weights, args=("w_rsi",))
-    st.slider("MACD weight (%)", 0, 100, key="w_macd",
-              on_change=_rebalance_weights, args=("w_macd",))
-    st.caption(
-        f"Current split → Candle **{st.session_state.w_candle}%** · "
-        f"RSI **{st.session_state.w_rsi}%** · MACD **{st.session_state.w_macd}%**"
-    )
-    if st.button("Reset to defaults (40/30/30)"):
-        st.session_state.w_candle = DEFAULT_WEIGHTS["candle"]
-        st.session_state.w_rsi = DEFAULT_WEIGHTS["rsi"]
-        st.session_state.w_macd = DEFAULT_WEIGHTS["macd"]
+    for _, state_key, label in COMPONENT_SLIDERS:
+        st.slider(f"{label} weight (%)", 0, 100, key=state_key,
+                  on_change=_rebalance_weights, args=(state_key,))
+
+    split_str = " · ".join(f"{label} **{st.session_state[sk]}%**" for _, sk, label in COMPONENT_SLIDERS)
+    st.caption(f"Current split → {split_str}")
+
+    if st.button("Reset to defaults"):
+        for comp_key, state_key, _ in COMPONENT_SLIDERS:
+            st.session_state[state_key] = DEFAULT_WEIGHTS[comp_key]
         st.rerun()
 
-    weights = {"candle": st.session_state.w_candle, "rsi": st.session_state.w_rsi, "macd": st.session_state.w_macd}
+    weights = {comp_key: st.session_state[state_key] for comp_key, state_key, _ in COMPONENT_SLIDERS}
 
     run_scan = st.button("🔍 Scan Watchlist", type="primary")
 
@@ -237,14 +243,16 @@ if results:
         if "error" in data:
             rows.append({"Ticker": t, "Score": None, "Verdict": "Error", "Close": None,
                          "Candle": None, "RSI comp": None, "MACD comp": None,
+                         "Trend comp": None, "Vol.ty comp": None, "Volume comp": None,
                          "Trend": None, "RSI": None, "Vol Ratio": None, "Patterns": data["error"]})
         else:
             r = data["result"]
+            cs = r.component_scores
             pattern_names = ", ".join(p.name for p in r.patterns) if r.patterns else "—"
             rows.append({
                 "Ticker": t, "Score": r.score, "Verdict": r.verdict, "Close": round(r.close, 2),
-                "Candle": r.component_scores.get("candle"), "RSI comp": r.component_scores.get("rsi"),
-                "MACD comp": r.component_scores.get("macd"),
+                "Candle": cs.get("candle"), "RSI comp": cs.get("rsi"), "MACD comp": cs.get("macd"),
+                "Trend comp": cs.get("trend"), "Vol.ty comp": cs.get("volatility"), "Volume comp": cs.get("volume"),
                 "Trend": r.trend, "RSI": r.rsi, "Vol Ratio": r.vol_ratio, "Patterns": pattern_names,
             })
 
@@ -296,9 +304,13 @@ if results:
 
         with st.container(border=True):
             cc1, cc2, cc3 = st.columns(3)
-            cc1.metric(f"Candle component ({weights['candle']:.0f}%)", f"{r.component_scores.get('candle', 50)}/100")
-            cc2.metric(f"RSI component ({weights['rsi']:.0f}%)", f"{r.component_scores.get('rsi', 50)}/100")
-            cc3.metric(f"MACD component ({weights['macd']:.0f}%)", f"{r.component_scores.get('macd', 50)}/100")
+            cc1.metric(f"Candle ({weights['candle']:.0f}%)", f"{r.component_scores.get('candle', 50)}/100")
+            cc2.metric(f"RSI ({weights['rsi']:.0f}%)", f"{r.component_scores.get('rsi', 50)}/100")
+            cc3.metric(f"MACD ({weights['macd']:.0f}%)", f"{r.component_scores.get('macd', 50)}/100")
+            cc4, cc5, cc6 = st.columns(3)
+            cc4.metric(f"Trend/MA ({weights['trend']:.0f}%)", f"{r.component_scores.get('trend', 50)}/100")
+            cc5.metric(f"Volatility/BB ({weights['volatility']:.0f}%)", f"{r.component_scores.get('volatility', 50)}/100")
+            cc6.metric(f"Volume/VWAP ({weights['volume']:.0f}%)", f"{r.component_scores.get('volume', 50)}/100")
             st.caption("Adjust the weight sliders in the sidebar to rebalance how much each component drives the final score — no need to re-scan.")
 
         # Candlestick chart with moving averages — only show data up to the analyzed candle

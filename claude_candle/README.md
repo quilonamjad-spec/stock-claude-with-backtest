@@ -8,33 +8,38 @@ with a plain-English breakdown of why.
 
 ⚠️ **Educational tool only. Not financial advice.**
 
-## Scoring: three independent, weighted components
+## Scoring: six independent, weighted components
 
-The 0-100 score (50 = neutral) is now built from **three components that
-are each always computed independently**, then blended by weights you
-control:
+The 0-100 score (50 = neutral) is now a balanced scorecard across all four
+major technical-analysis categories, built from **six components that are
+each always computed independently**, then blended by weights you control:
 
-| Component | What it measures | Default weight |
-|---|---|---|
-| **Candle Pattern** | Detected pattern shape × trend alignment × volume × S/R proximity | 40% |
-| **RSI** | Overbought/oversold momentum (`100 - RSI`) | 30% |
-| **MACD** | ATR-normalized MACD histogram direction/strength | 30% |
+| Category | Component | What it measures | Default weight |
+|---|---|---|---|
+| Pattern | **Candle Pattern** | Detected shape × trend alignment × volume × S/R | 25% |
+| Momentum | **RSI** | Overbought/oversold (`100 - RSI`) | 15% |
+| Momentum | **MACD** | ATR-normalized histogram direction/strength | 15% |
+| Trend | **Moving Averages** | Price vs EMA20 + EMA20-vs-EMA50 cross (ATR-normalized) | 20% |
+| Volatility | **Bollinger Bands** | %B position, framed as mean-reversion | 10% |
+| Volume | **VWAP** | Price vs volume-weighted average price (ATR-normalized) | 15% |
 
-This is a deliberate change from the earlier design, where RSI/MACD only
-mattered *if* a candlestick pattern happened to fire on that exact candle —
-which is what caused scores to feel inconsistent (locked at neutral most of
-the time, then jumping sharply whenever a pattern coincided). Now every
-candle gets a real, continuously-varying score from all three angles.
+Each component is computed independently of the others — this is what keeps
+scores continuously informative instead of sitting at neutral whenever, say,
+no candlestick pattern happens to be present. A strongly bearish candle
+pattern showing up mid-uptrend, with price above VWAP and MACD still rising,
+correctly nets out closer to Neutral rather than reading as a Strong Sell —
+the components pull against each other exactly the way a human analyst
+weighing multiple signals would.
 
-**Adjust the weights** in the sidebar — three sliders that always sum to
-100%. Move one and the other two rebalance proportionally (e.g. raising
-Candle from 40% to 50% splits the remaining 50% across RSI/MACD keeping
-their relative ratio). Weight changes re-score instantly using already-
-fetched data — no need to re-scan the watchlist.
+**Adjust the weights** in the sidebar — six sliders that always sum to
+100%. Move one and the other five rebalance proportionally, keeping their
+relative ratio to each other. Weight changes re-score instantly using
+already-fetched data — no need to re-scan the watchlist.
 
-The detail view shows each component's individual 0-100 sub-score alongside
-the blended final score, so you can see exactly which factor is driving (or
-dragging down) any given result.
+The detail view shows all six component sub-scores alongside the blended
+final score, and the results table includes a column per component too, so
+you can see exactly which factor is driving (or dragging down) any result
+at a glance.
 
 ## Scoring scale
 

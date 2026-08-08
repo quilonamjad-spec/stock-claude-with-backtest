@@ -71,6 +71,26 @@ def add_support_resistance(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
     return df
 
 
+def add_vwap(df: pd.DataFrame, rolling_period: int = 20) -> pd.DataFrame:
+    """Volume-Weighted Average Price. VWAP is conventionally an intraday measure that
+    resets every session — so if the data has multiple candles per calendar day (intraday
+    bars), it's computed as a cumulative sum WITHIN each day. For daily-bar data (one
+    candle per day), a true session VWAP doesn't apply, so a rolling N-period
+    volume-weighted average is used instead as the closest equivalent."""
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    tp_vol = typical_price * df["volume"]
+
+    naive_idx = df.index.tz_localize(None) if df.index.tz is not None else df.index
+    dates = pd.Series(naive_idx.date, index=df.index)
+    is_intraday = dates.nunique() < len(df)  # more than one candle sharing a date -> intraday
+
+    if is_intraday:
+        df["vwap"] = tp_vol.groupby(dates).cumsum() / df["volume"].groupby(dates).cumsum()
+    else:
+        df["vwap"] = tp_vol.rolling(rolling_period).sum() / df["volume"].rolling(rolling_period).sum()
+    return df
+
+
 def compute_trend(df: pd.DataFrame, short: int = 20, long: int = 50) -> pd.DataFrame:
     """Simple trend classification from EMA relationship: uptrend / downtrend / range."""
     if f"ema_{short}" not in df.columns or f"ema_{long}" not in df.columns:
@@ -95,6 +115,7 @@ def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = add_bollinger(df)
     df = add_volume_avg(df)
     df = add_support_resistance(df)
+    df = add_vwap(df)
     df = compute_trend(df)
     return df
 
