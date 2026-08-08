@@ -65,6 +65,25 @@ sidebar and type plain symbols (`RELIANCE`, `TCS`, `INFY`, `HDFCBANK`,
 automatically. You can also type the full suffixed symbol yourself if you
 prefer.
 
+## Scanning the full Nifty 500
+
+In the sidebar, switch **Source** to "Full Nifty 500 (scan whole market)" to
+score all 500 constituents in one run (from the bundled `nifty500.json`).
+You can also add extra tickers on top of the 500. Individual-ticker mode is
+still there if you just want a quick watchlist — switch back anytime.
+
+Under the hood, scanning 500 tickers uses **batched downloads**
+(`fetch_ohlcv_batch` in `data_fetcher.py`) — ~40 tickers per API call instead
+of one call per ticker — so a full-market scan takes roughly 15-30 seconds
+instead of several minutes, and is far less likely to hit Yahoo's rate limit.
+
+## Today's session / intraday candles
+
+Set **History period** to `1d` and **Candle interval** to `5m` (or `15m`,
+`30m`, `1h`) to watch today's candles as they form. Combine with
+"Analyze as of a specific date/time" to freeze the analysis at a particular
+moment during the session (e.g. "what did the 10:15 AM candle look like").
+
 ## Point-in-time analysis
 
 Tick **"Analyze as of a specific date/time"** in the sidebar to score the

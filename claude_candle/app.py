@@ -8,6 +8,8 @@ Run locally:
 Deploy free on Streamlit Community Cloud by pushing this repo to GitHub
 and pointing streamlit.io/cloud at app.py (see README.md).
 """
+import json
+import os
 import time
 from datetime import datetime, date, time as dtime
 
@@ -15,7 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from data_fetcher import fetch_ohlcv
+from data_fetcher import fetch_ohlcv_batch
 from indicators import add_all_indicators
 from scoring import score_at
 
@@ -29,22 +31,60 @@ st.caption(
 
 NSE_DEFAULTS = "RELIANCE, TCS, INFY, HDFCBANK, ICICIBANK"
 US_DEFAULTS = "AAPL, MSFT, NVDA, TSLA, AMZN"
+NIFTY500_PATH = os.path.join(os.path.dirname(__file__), "nifty500.json")
+
+
+@st.cache_data
+def load_nifty500() -> list:
+    with open(NIFTY500_PATH) as f:
+        return json.load(f)["tickers"]
+
+
+def normalize_ticker(raw: str, market: str) -> str:
+    t = raw.strip().upper()
+    if market == "India (NSE)" and not t.endswith((".NS", ".BO")):
+        t += ".NS"
+    elif market == "India (BSE)" and not t.endswith((".NS", ".BO")):
+        t += ".BO"
+    return t
+
 
 # ---------------- Sidebar controls ----------------
 with st.sidebar:
     st.header("Watchlist")
-    market = st.selectbox("Market", ["India (NSE)", "US", "India (BSE)"], index=0)
-    default_watchlist = NSE_DEFAULTS if market != "US" else US_DEFAULTS
-    tickers_raw = st.text_area(
-        "Tickers (comma separated)", value=default_watchlist, height=80,
-        help="For NSE/BSE you can type the symbol plain (e.g. RELIANCE) — "
-             "the .NS / .BO suffix is added automatically.",
+    watchlist_mode = st.radio(
+        "Source", ["Individual tickers", "Full Nifty 500 (scan whole market)"], index=0,
     )
-    period = st.selectbox("History period", ["1mo", "3mo", "6mo"], index=0)
+
+    if watchlist_mode.startswith("Full"):
+        nifty500 = load_nifty500()
+        st.caption(f"✅ {len(nifty500)} NSE tickers loaded from Nifty 500.")
+        extra_raw = st.text_input("Add extra tickers too (optional, comma-separated)")
+        market = "India (NSE)"
+        tickers = list(nifty500)
+        if extra_raw.strip():
+            tickers += [normalize_ticker(t, market) for t in extra_raw.split(",") if t.strip()]
+        # de-dupe while preserving order
+        seen = set()
+        tickers = [t for t in tickers if not (t in seen or seen.add(t))]
+    else:
+        market = st.selectbox("Market", ["India (NSE)", "US", "India (BSE)"], index=0)
+        default_watchlist = NSE_DEFAULTS if market != "US" else US_DEFAULTS
+        tickers_raw = st.text_area(
+            "Tickers (comma separated)", value=default_watchlist, height=80,
+            help="For NSE/BSE you can type the symbol plain (e.g. RELIANCE) — "
+                 "the .NS / .BO suffix is added automatically.",
+        )
+        tickers = [normalize_ticker(t, market) for t in tickers_raw.split(",") if t.strip()]
+
+    period = st.selectbox(
+        "History period", ["1d", "5d", "1mo", "3mo", "6mo"], index=2,
+        help="'1d' pulls just today's session — pair it with a short interval like 5m to watch today's candles form.",
+    )
     interval = st.selectbox(
-        "Candle interval", ["1d", "1h", "30m", "15m"], index=0,
-        help="Intraday intervals (1h/30m/15m) are only available for roughly the last 60 days from Yahoo, "
-             "which fits within a 1mo/3mo window.",
+        "Candle interval", ["1d", "1h", "30m", "15m", "5m"], index=0,
+        help="Intraday intervals (1h/30m/15m/5m) are only available for roughly the last 60 days from Yahoo. "
+             "For '1d' period, pick an intraday interval (e.g. 5m) or you'll only get a single candle.",
     )
     min_score_filter = st.slider(
         "Only show conviction ≥ (distance from neutral 50)", 0, 50, 0,
@@ -62,18 +102,6 @@ with st.sidebar:
 
     run_scan = st.button("🔍 Scan Watchlist", type="primary")
 
-
-def normalize_ticker(raw: str, market: str) -> str:
-    t = raw.strip().upper()
-    if market == "India (NSE)" and not t.endswith((".NS", ".BO")):
-        t += ".NS"
-    elif market == "India (BSE)" and not t.endswith((".NS", ".BO")):
-        t += ".BO"
-    return t
-
-
-tickers = [normalize_ticker(t, market) for t in tickers_raw.split(",") if t.strip()]
-
 if "scan_results" not in st.session_state:
     st.session_state.scan_results = {}
 
@@ -84,10 +112,15 @@ if run_scan:
     if use_as_of:
         as_of_dt = datetime.combine(as_of_date, as_of_time or dtime(23, 59))
 
-    progress = st.progress(0.0, text="Scanning...")
+    status = st.empty()
+    status.info(f"Fetching {len(tickers)} ticker(s) in batches — this is much faster than one-by-one...")
+    ohlcv_by_ticker = fetch_ohlcv_batch(tuple(tickers), period=period, interval=interval)
+    status.empty()
+
+    progress = st.progress(0.0, text="Scoring...")
     for idx, t in enumerate(tickers):
         try:
-            df = fetch_ohlcv(t, period=period, interval=interval)
+            df = ohlcv_by_ticker.get(t, pd.DataFrame())
             if df.empty or len(df) < 5:
                 st.session_state.scan_results[t] = {"error": "Not enough data returned."}
             else:
@@ -113,8 +146,8 @@ if run_scan:
         except Exception as e:
             st.session_state.scan_results[t] = {"error": str(e)}
 
-        progress.progress((idx + 1) / max(len(tickers), 1), text=f"Scanning {t}...")
-        time.sleep(0.6)  # small gap between requests to avoid Yahoo rate-limiting on multi-ticker scans
+        if idx % 25 == 0 or idx == len(tickers) - 1:
+            progress.progress((idx + 1) / max(len(tickers), 1), text=f"Scoring... {idx + 1}/{len(tickers)}")
     progress.empty()
 
 # ---------------- Results table ----------------
