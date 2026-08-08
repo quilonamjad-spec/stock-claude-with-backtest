@@ -19,7 +19,7 @@ import streamlit as st
 
 from data_fetcher import fetch_ohlcv_batch, trim_to_period
 from indicators import add_all_indicators, smooth_session_edges
-from scoring import score_at
+from scoring import score_at, DEFAULT_WEIGHTS
 
 st.set_page_config(page_title="Candlestick Pattern Screener", layout="wide")
 
@@ -102,12 +102,62 @@ with st.sidebar:
     if use_as_of and interval != "1d":
         as_of_time = st.time_input("Time", value=dtime(15, 30))  # NSE close ~15:30 IST
 
+    st.divider()
+    st.header("Scoring weights")
+    st.caption(
+        "How much each component contributes to the final score. They always sum to "
+        "100% — move one and the others rebalance proportionally."
+    )
+
+    WEIGHT_KEYS = ["w_candle", "w_rsi", "w_macd"]
+    if "w_candle" not in st.session_state:
+        st.session_state.w_candle = DEFAULT_WEIGHTS["candle"]
+        st.session_state.w_rsi = DEFAULT_WEIGHTS["rsi"]
+        st.session_state.w_macd = DEFAULT_WEIGHTS["macd"]
+
+    def _rebalance_weights(changed_key: str):
+        other_keys = [k for k in WEIGHT_KEYS if k != changed_key]
+        new_val = st.session_state[changed_key]
+        remaining = 100 - new_val
+        if remaining < 0:
+            st.session_state[changed_key] = 100
+            remaining = 0
+        total_others_old = sum(st.session_state[k] for k in other_keys)
+        if total_others_old <= 0:
+            for k in other_keys:
+                st.session_state[k] = remaining / len(other_keys)
+        else:
+            for k in other_keys:
+                st.session_state[k] = round(remaining * st.session_state[k] / total_others_old)
+        drift = 100 - sum(st.session_state[k] for k in WEIGHT_KEYS)
+        if drift != 0:
+            st.session_state[other_keys[0]] += drift
+
+    st.slider("Candle Pattern weight (%)", 0, 100, key="w_candle",
+              on_change=_rebalance_weights, args=("w_candle",))
+    st.slider("RSI weight (%)", 0, 100, key="w_rsi",
+              on_change=_rebalance_weights, args=("w_rsi",))
+    st.slider("MACD weight (%)", 0, 100, key="w_macd",
+              on_change=_rebalance_weights, args=("w_macd",))
+    st.caption(
+        f"Current split → Candle **{st.session_state.w_candle}%** · "
+        f"RSI **{st.session_state.w_rsi}%** · MACD **{st.session_state.w_macd}%**"
+    )
+    if st.button("Reset to defaults (40/30/30)"):
+        st.session_state.w_candle = DEFAULT_WEIGHTS["candle"]
+        st.session_state.w_rsi = DEFAULT_WEIGHTS["rsi"]
+        st.session_state.w_macd = DEFAULT_WEIGHTS["macd"]
+        st.rerun()
+
+    weights = {"candle": st.session_state.w_candle, "rsi": st.session_state.w_rsi, "macd": st.session_state.w_macd}
+
     run_scan = st.button("🔍 Scan Watchlist", type="primary")
 
 if "scan_results" not in st.session_state:
     st.session_state.scan_results = {}
 
-# ---------------- Run scan ----------------
+# ---------------- Run scan (fetches + computes indicators only — NOT final scores,
+# so that adjusting the weight sliders afterward re-scores instantly without a re-fetch) ----------------
 if run_scan:
     st.session_state.scan_results = {}
     as_of_dt = None
@@ -126,7 +176,7 @@ if run_scan:
     ohlcv_by_ticker = fetch_ohlcv_batch(tuple(tickers), period=fetch_period, interval=interval)
     status.empty()
 
-    progress = st.progress(0.0, text="Scoring...")
+    progress = st.progress(0.0, text="Preparing data...")
     for idx, t in enumerate(tickers):
         try:
             df = ohlcv_by_ticker.get(t, pd.DataFrame())
@@ -163,29 +213,38 @@ if run_scan:
                 else:
                     i = len(df_ind) - 1
 
-                result = score_at(df_ind, t, i)
-                st.session_state.scan_results[t] = {"df": df_ind, "result": result, "i": i}
+                st.session_state.scan_results[t] = {"df": df_ind, "i": i}
         except Exception as e:
             st.session_state.scan_results[t] = {"error": str(e)}
 
         if idx % 25 == 0 or idx == len(tickers) - 1:
-            progress.progress((idx + 1) / max(len(tickers), 1), text=f"Scoring... {idx + 1}/{len(tickers)}")
+            progress.progress((idx + 1) / max(len(tickers), 1), text=f"Preparing data... {idx + 1}/{len(tickers)}")
     progress.empty()
 
-# ---------------- Results table ----------------
-results = st.session_state.scan_results
+# ---------------- Score with current weights (recomputed every render — cheap, so
+# moving the weight sliders updates results live without needing to re-scan) ----------------
+raw = st.session_state.scan_results
+results = {}
+for t, data in raw.items():
+    if "error" in data:
+        results[t] = data
+    else:
+        results[t] = {"df": data["df"], "i": data["i"], "result": score_at(data["df"], t, data["i"], weights=weights)}
 
 if results:
     rows = []
     for t, data in results.items():
         if "error" in data:
             rows.append({"Ticker": t, "Score": None, "Verdict": "Error", "Close": None,
+                         "Candle": None, "RSI comp": None, "MACD comp": None,
                          "Trend": None, "RSI": None, "Vol Ratio": None, "Patterns": data["error"]})
         else:
             r = data["result"]
             pattern_names = ", ".join(p.name for p in r.patterns) if r.patterns else "—"
             rows.append({
                 "Ticker": t, "Score": r.score, "Verdict": r.verdict, "Close": round(r.close, 2),
+                "Candle": r.component_scores.get("candle"), "RSI comp": r.component_scores.get("rsi"),
+                "MACD comp": r.component_scores.get("macd"),
                 "Trend": r.trend, "RSI": r.rsi, "Vol Ratio": r.vol_ratio, "Patterns": pattern_names,
             })
 
@@ -234,6 +293,13 @@ if results:
         col3.metric("Trend going in", r.trend, help="The trend BEFORE this candle — reversal patterns score strongest when they go against this.")
         col4.metric("RSI", r.rsi)
         st.progress(r.score / 100)
+
+        with st.container(border=True):
+            cc1, cc2, cc3 = st.columns(3)
+            cc1.metric(f"Candle component ({weights['candle']:.0f}%)", f"{r.component_scores.get('candle', 50)}/100")
+            cc2.metric(f"RSI component ({weights['rsi']:.0f}%)", f"{r.component_scores.get('rsi', 50)}/100")
+            cc3.metric(f"MACD component ({weights['macd']:.0f}%)", f"{r.component_scores.get('macd', 50)}/100")
+            st.caption("Adjust the weight sliders in the sidebar to rebalance how much each component drives the final score — no need to re-scan.")
 
         # Candlestick chart with moving averages — only show data up to the analyzed candle
         # so the chart matches exactly what the score "saw" (no lookahead)

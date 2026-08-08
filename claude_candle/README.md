@@ -8,6 +8,34 @@ with a plain-English breakdown of why.
 
 ⚠️ **Educational tool only. Not financial advice.**
 
+## Scoring: three independent, weighted components
+
+The 0-100 score (50 = neutral) is now built from **three components that
+are each always computed independently**, then blended by weights you
+control:
+
+| Component | What it measures | Default weight |
+|---|---|---|
+| **Candle Pattern** | Detected pattern shape × trend alignment × volume × S/R proximity | 40% |
+| **RSI** | Overbought/oversold momentum (`100 - RSI`) | 30% |
+| **MACD** | ATR-normalized MACD histogram direction/strength | 30% |
+
+This is a deliberate change from the earlier design, where RSI/MACD only
+mattered *if* a candlestick pattern happened to fire on that exact candle —
+which is what caused scores to feel inconsistent (locked at neutral most of
+the time, then jumping sharply whenever a pattern coincided). Now every
+candle gets a real, continuously-varying score from all three angles.
+
+**Adjust the weights** in the sidebar — three sliders that always sum to
+100%. Move one and the other two rebalance proportionally (e.g. raising
+Candle from 40% to 50% splits the remaining 50% across RSI/MACD keeping
+their relative ratio). Weight changes re-score instantly using already-
+fetched data — no need to re-scan the watchlist.
+
+The detail view shows each component's individual 0-100 sub-score alongside
+the blended final score, so you can see exactly which factor is driving (or
+dragging down) any given result.
+
 ## Scoring scale
 
 Every candle gets a score from **0 to 100**:

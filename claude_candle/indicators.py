@@ -22,8 +22,13 @@ def add_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     avg_gain = gain.rolling(period).mean()
     avg_loss = loss.rolling(period).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    df["rsi"] = 100 - (100 / (1 + rs))
-    df["rsi"] = df["rsi"].fillna(50)
+    rsi = 100 - (100 / (1 + rs))
+    # avg_loss==0 means every candle in the window was a gain -> maximally overbought (100),
+    # not "no data" -> the naive division above turns this into NaN, which must NOT become
+    # a neutral 50 (that would silently mask genuine strong-momentum runs).
+    rsi[(avg_loss == 0) & (avg_gain > 0)] = 100
+    rsi[(avg_loss == 0) & (avg_gain == 0)] = 50  # truly flat window -> genuinely neutral
+    df["rsi"] = rsi.fillna(50)  # remaining NaNs are just the initial warm-up period
     return df
 
 
