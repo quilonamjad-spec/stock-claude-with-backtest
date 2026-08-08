@@ -96,6 +96,22 @@ def _support_resistance_bonus(bias: str, close: float, support: float, resistanc
     return 0.0
 
 
+def _plain_english_context(hit_bias: str, trend: str) -> str:
+    """A short, unambiguous sentence explaining *why* trend context pushed the score
+    the way it did — added because 'trend[uptrend]' next to a bearish score reads as
+    contradictory unless it's spelled out that reversal patterns are scored strongest
+    exactly when they go AGAINST the prior trend."""
+    if hit_bias == "bullish" and trend == "downtrend":
+        return "  → Reversal-up signal after a decline: classic 'potential bottom' setup, scored strongly bullish."
+    if hit_bias == "bullish" and trend == "uptrend":
+        return "  → Bullish pattern continuing an existing uptrend: supportive, but a weaker signal than a bottom reversal."
+    if hit_bias == "bearish" and trend == "uptrend":
+        return "  → Reversal-down signal after a rally: classic 'potential top' setup — this is WHY it scores as a strong sell despite the prior trend being up."
+    if hit_bias == "bearish" and trend == "downtrend":
+        return "  → Bearish pattern continuing an existing downtrend: supportive, but a weaker signal than a top reversal."
+    return "  → No clear prior trend to react against, so this pattern is scored on a weaker base."
+
+
 def _verdict(score: float) -> str:
     if score >= 80:
         return "Strong Buy"
@@ -144,6 +160,8 @@ def score_at(df: pd.DataFrame, ticker: str, i: int) -> ScoreResult:
             f"+ momentum {mbonus:.0f} + S/R {srbonus:.0f} → {signed:+.1f} pts "
             f"{'toward 100 (bullish)' if signed > 0 else 'toward 0 (bearish)' if signed < 0 else ''}"
         )
+        if hit.bias in ("bullish", "bearish"):
+            reasons.append(_plain_english_context(hit.bias, trend))
 
     deviation = max(-MAX_DEVIATION, min(MAX_DEVIATION, deviation))
     score = round(NEUTRAL + deviation, 1)

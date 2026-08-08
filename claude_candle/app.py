@@ -209,7 +209,7 @@ if results:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Score (0-100, 50=neutral)", f"{r.score}", r.verdict)
         col2.metric("Close", f"{currency}{r.close:.2f}")
-        col3.metric("Trend", r.trend)
+        col3.metric("Trend going in", r.trend, help="The trend BEFORE this candle — reversal patterns score strongest when they go against this.")
         col4.metric("RSI", r.rsi)
         st.progress(r.score / 100)
 
