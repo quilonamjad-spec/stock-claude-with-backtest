@@ -204,7 +204,12 @@ def _macd_component(macd_hist: float, atr: float):
 
 # =========================================================
 # COMPONENT: Trend (Moving Averages) — price vs EMA20, plus EMA20-vs-EMA50 cross,
-# both ATR-normalized so the same formula shape works across any stock's price scale
+# both ATR-normalized so the same formula shape works across any stock's price scale.
+# Divisor is 3x ATR (not 0.5x) deliberately: ATR is a single DAY's typical range, so a
+# 0.5x-ATR divisor saturates the score to ~100 after barely one day of normal drift,
+# which is far too eager — any real multi-day trend would pin this at the ceiling
+# almost immediately. A wider divisor requires a genuinely sustained move to saturate,
+# giving a much more graduated read of "how strong is this trend, really".
 # =========================================================
 def _trend_ma_component(close: float, ema20: float, ema50: float, atr: float):
     if pd.isna(ema20) or pd.isna(ema50):
@@ -212,8 +217,8 @@ def _trend_ma_component(close: float, ema20: float, ema50: float, atr: float):
     if pd.isna(atr) or atr == 0:
         atr = 1.0
 
-    price_vs_ema20 = math.tanh((close - ema20) / (0.5 * atr))
-    ema20_vs_ema50 = math.tanh((ema20 - ema50) / (0.5 * atr))
+    price_vs_ema20 = math.tanh((close - ema20) / (3.0 * atr))
+    ema20_vs_ema50 = math.tanh((ema20 - ema50) / (3.0 * atr))
     combined = 0.6 * price_vs_ema20 + 0.4 * ema20_vs_ema50
     score = max(0.0, min(100.0, 50.0 + 50.0 * combined))
 
@@ -246,7 +251,10 @@ def _volatility_bb_component(close: float, bb_upper: float, bb_lower: float):
 
 
 # =========================================================
-# COMPONENT: Volume (VWAP) — price vs volume-weighted average price, ATR-normalized
+# COMPONENT: Volume (VWAP) — price vs volume-weighted average price, ATR-normalized.
+# Same wider-divisor reasoning as the Trend component above (3x ATR, not 0.5x) — price
+# drifting a fraction of a day's typical range away from VWAP is completely normal and
+# shouldn't already read as maximally bullish/bearish.
 # =========================================================
 def _volume_vwap_component(close: float, vwap: float, atr: float):
     if pd.isna(vwap):
@@ -254,7 +262,7 @@ def _volume_vwap_component(close: float, vwap: float, atr: float):
     if pd.isna(atr) or atr == 0:
         atr = 1.0
 
-    signal = math.tanh((close - vwap) / (0.5 * atr))
+    signal = math.tanh((close - vwap) / (3.0 * atr))
     score = max(0.0, min(100.0, 50.0 + 50.0 * signal))
     reason = (
         f"Close {'above' if close >= vwap else 'below'} VWAP ({vwap:.2f}) → "
