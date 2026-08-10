@@ -340,7 +340,20 @@ def score_at(df: pd.DataFrame, ticker: str, i: int, weights: Optional[Dict[str, 
         "trend": trend_score, "volatility": vol_bb_score, "volume": vwap_score,
     }
 
-    final = sum(w[k] * component_scores[k] for k in COMPONENT_LABELS) / 100.0
+    final_raw = sum(w[k] * component_scores[k] for k in COMPONENT_LABELS) / 100.0
+
+    # VARIANCE-RESTORING STRETCH: averaging N partially-independent components
+    # mathematically shrinks the result toward the center (the more components, the
+    # tighter the shrinkage) — even genuine multi-component agreement then struggles to
+    # reach a clear Buy/Sell reading, and everything piles up as "Neutral". This factor
+    # exactly compensates for that shrinkage (1/sqrt(sum of normalized weights squared)),
+    # so real consensus among components can reach the same conviction a single strong
+    # indicator would show on its own — while genuine disagreement between components
+    # still correctly nets out near neutral, since the stretch is applied AFTER blending,
+    # not to any individual component.
+    w_frac = {k: w[k] / 100.0 for k in COMPONENT_LABELS}
+    stretch = 1.0 / math.sqrt(sum(v * v for v in w_frac.values())) if any(w_frac.values()) else 1.0
+    final = 50.0 + stretch * (final_raw - 50.0)
     final = round(max(0.0, min(100.0, final)), 1)
     verdict = _verdict(final)
 
@@ -368,7 +381,10 @@ def score_at(df: pd.DataFrame, ticker: str, i: int, weights: Optional[Dict[str, 
     reasons.append(vwap_reason)
     reasons.append(f"Volume component contributes {w['volume'] / 100 * vwap_score:+.1f} pts")
 
-    reasons.append(f"── Final blended score: {final}/100 → {verdict} ──")
+    reasons.append(
+        f"── Raw blend: {final_raw:.1f} → stretch x{stretch:.2f} (restores spread lost to "
+        f"averaging {len(COMPONENT_LABELS)} components) → Final score: {final}/100 → {verdict} ──"
+    )
 
     return ScoreResult(
         ticker=ticker,
