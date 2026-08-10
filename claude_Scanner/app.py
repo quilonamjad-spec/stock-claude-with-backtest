@@ -33,11 +33,12 @@ LOCAL_FALLBACK = "nifty500_fallback.csv"  # optional: ship a cached copy in your
 IST_TZ = "Asia/Kolkata"
 
 DEFAULT_WEIGHTS = {
-    "VWAP_strength": 0.25,
-    "Volume_strength": 0.25,
-    "Trend_strength": 0.20,
-    "Breakout_strength": 0.20,
-    "MoneyFlow_strength": 0.10,
+    "Trend_strength": 0.20,       # trend      -> EMA9 vs EMA21 separation
+    "Breakout_strength": 0.20,    # momentum   -> distance past 10-bar high/low
+    "Volatility_strength": 0.15,  # volatility -> ATR(14) expansion vs its own avg
+    "Volume_strength": 0.20,      # volume     -> volume vs 20-period avg
+    "MoneyFlow_strength": 0.10,   # volume     -> CMF magnitude
+    "VWAP_strength": 0.15,        # trend      -> distance from VWAP
 }
 
 
@@ -112,6 +113,19 @@ def compute_cmf(df: pd.DataFrame, period: int = 20) -> pd.Series:
     return mfv.rolling(period).sum() / df["Volume"].rolling(period).sum()
 
 
+def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    prev_close = df["Close"].shift(1)
+    tr = pd.concat(
+        [
+            df["High"] - df["Low"],
+            (df["High"] - prev_close).abs(),
+            (df["Low"] - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return tr.rolling(period).mean()
+
+
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     d["VWAP"] = compute_vwap(d)
@@ -121,6 +135,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d["High10"] = d["High"].shift(1).rolling(10).max()
     d["Low10"] = d["Low"].shift(1).rolling(10).min()
     d["CMF20"] = compute_cmf(d, 20)
+    d["ATR14"] = compute_atr(d, 14)
+    d["ATR14_avg20"] = d["ATR14"].rolling(20).mean()
     return d
 
 
@@ -155,7 +171,8 @@ def build_result(symbol: str, df: pd.DataFrame, as_of):
 
     data = compute_indicators(data)
     last = data.iloc[-1]
-    if last[["VWAP", "SMA_Vol20", "EMA9", "EMA21", "High10", "Low10", "CMF20"]].isna().any():
+    required = ["VWAP", "SMA_Vol20", "EMA9", "EMA21", "High10", "Low10", "CMF20", "ATR14", "ATR14_avg20"]
+    if last[required].isna().any():
         return None
 
     phase = evaluate_row(last)
@@ -174,6 +191,11 @@ def build_result(symbol: str, df: pd.DataFrame, as_of):
     else:
         breakout_strength = (last["Low10"] - last["Close"]) / last["Low10"] * 100
     moneyflow_strength = abs(last["CMF20"])
+    # Volatility expansion: current ATR vs its own 20-bar average. >1 means
+    # volatility is expanding (favorable for breakout follow-through).
+    volatility_strength = (
+        last["ATR14"] / last["ATR14_avg20"] if last["ATR14_avg20"] else np.nan
+    )
 
     return {
         "Symbol": symbol.replace(".NS", ""),
@@ -181,11 +203,12 @@ def build_result(symbol: str, df: pd.DataFrame, as_of):
         "% Change": round(pct_change, 2),
         "LTP": round(last["Close"], 2),
         "Bar Time": last.name.strftime("%Y-%m-%d %H:%M"),
-        "VWAP_strength": vwap_strength,
-        "Volume_strength": volume_strength,
         "Trend_strength": trend_strength,
         "Breakout_strength": max(breakout_strength, 0),
+        "Volatility_strength": volatility_strength,
+        "Volume_strength": volume_strength,
         "MoneyFlow_strength": moneyflow_strength,
+        "VWAP_strength": vwap_strength,
     }
 
 
@@ -245,17 +268,23 @@ with st.sidebar:
     st.divider()
     st.header("Ranking weights")
     st.caption("Used in Stage 2. Any relative scale works — they're normalized to sum to 1.")
+    st.caption("Trend")
+    w_trend = st.slider("EMA9/EMA21 separation", 0.0, 1.0, DEFAULT_WEIGHTS["Trend_strength"])
     w_vwap = st.slider("VWAP distance", 0.0, 1.0, DEFAULT_WEIGHTS["VWAP_strength"])
-    w_vol = st.slider("Volume surge", 0.0, 1.0, DEFAULT_WEIGHTS["Volume_strength"])
-    w_trend = st.slider("EMA trend separation", 0.0, 1.0, DEFAULT_WEIGHTS["Trend_strength"])
+    st.caption("Momentum")
     w_break = st.slider("Breakout distance", 0.0, 1.0, DEFAULT_WEIGHTS["Breakout_strength"])
+    st.caption("Volatility")
+    w_atr = st.slider("ATR expansion", 0.0, 1.0, DEFAULT_WEIGHTS["Volatility_strength"])
+    st.caption("Volume")
+    w_vol = st.slider("Volume surge", 0.0, 1.0, DEFAULT_WEIGHTS["Volume_strength"])
     w_cmf = st.slider("Money flow (CMF)", 0.0, 1.0, DEFAULT_WEIGHTS["MoneyFlow_strength"])
     weights = {
-        "VWAP_strength": w_vwap,
-        "Volume_strength": w_vol,
         "Trend_strength": w_trend,
         "Breakout_strength": w_break,
+        "Volatility_strength": w_atr,
+        "Volume_strength": w_vol,
         "MoneyFlow_strength": w_cmf,
+        "VWAP_strength": w_vwap,
     }
 
 if "scan_df" not in st.session_state:
