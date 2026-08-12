@@ -23,7 +23,7 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-#from kite_client import KiteSession, KITECONNECT_AVAILABLE
+from kite_client import KiteSession, KITECONNECT_AVAILABLE
 
 # --------------------------------------------------------------------------
 # CONFIG
@@ -396,6 +396,8 @@ if "ranked_df" not in st.session_state:
     st.session_state.ranked_df = None
 if "gate_rejected" not in st.session_state:
     st.session_state.gate_rejected = None
+if "scan_as_of" not in st.session_state:
+    st.session_state.scan_as_of = None
 
 col1, col2 = st.columns([1, 1])
 run_scan = col1.button("🔍 Run Scan", type="primary", use_container_width=True)
@@ -468,6 +470,7 @@ if run_scan:
 
     if results:
         st.session_state.scan_df = pd.DataFrame(results)
+        st.session_state.scan_as_of = as_of
         st.session_state.ranked_df = None
         st.success(f"Scan complete — {len(results)} stock(s) matched as of {as_of}.")
     else:
@@ -500,6 +503,15 @@ if run_rank and st.session_state.scan_df is not None and not st.session_state.sc
 # ---- DISPLAY ----
 if st.session_state.scan_df is not None and not st.session_state.scan_df.empty:
     st.subheader("Stage 1 — Scan results")
+    scanned_at = st.session_state.get("scan_as_of")
+    if scanned_at is not None:
+        if scanned_at.date() == datetime.now().date():
+            st.caption(f"Scanned as of: {scanned_at} (today)")
+        else:
+            st.error(
+                f"⚠️ This scan was run as of {scanned_at} — that's NOT today. "
+                "Click '🔄 Use current date/time' in the sidebar and re-run the scan."
+            )
     display_cols = ["Symbol", "Phase", "% Change", "LTP", "Bar Time"]
     st.dataframe(
         st.session_state.scan_df[display_cols].reset_index(drop=True),
