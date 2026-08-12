@@ -23,7 +23,7 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-#from kite_client import KiteSession, KITECONNECT_AVAILABLE
+from kite_client import KiteSession, KITECONNECT_AVAILABLE
 
 # --------------------------------------------------------------------------
 # CONFIG
@@ -346,6 +346,10 @@ with st.sidebar:
     test_mode = st.checkbox("Test mode (first 60 stocks only — faster)", value=True)
     batch_size = st.slider("Download batch size", 20, 100, 50)
 
+    if st.button("🗑️ Clear data cache"):
+        fetch_batch.clear()
+        st.success("Cache cleared — next scan will pull fresh data from Yahoo.")
+
     st.divider()
     st.header("Quality gate")
     st.caption("Trend, structure & momentum checks — run before ranking to filter out exhausted/parabolic setups.")
@@ -396,6 +400,25 @@ if "gate_rejected" not in st.session_state:
 col1, col2 = st.columns([1, 1])
 run_scan = col1.button("🔍 Run Scan", type="primary", use_container_width=True)
 run_rank = col2.button("🏆 Rank Results", use_container_width=True, disabled=st.session_state.scan_df is None)
+
+with st.expander("🔧 Data diagnostics — check what Yahoo actually has right now"):
+    st.caption(
+        "Bypasses the scan entirely: pulls the most recent 5-min bars for one "
+        "symbol straight from Yahoo, so you can see whether today's data exists "
+        "at the source before blaming the app logic."
+    )
+    diag_symbol = st.text_input("Symbol (no .NS needed)", value="RELIANCE", key="diag_symbol")
+    if st.button("Check latest data"):
+        try:
+            raw = yf.download(f"{diag_symbol.upper()}.NS", period="2d", interval="5m", progress=False)
+            if raw.empty:
+                st.error("Yahoo returned no data at all for this symbol/period.")
+            else:
+                st.write(f"Query run at: {datetime.now()} (local)")
+                st.write(f"Latest bar in the response: **{raw.index[-1]}**")
+                st.dataframe(raw.tail(5))
+        except Exception as e:
+            st.error(f"Fetch failed: {e}")
 
 # ---- STAGE 1 ----
 if run_scan:
