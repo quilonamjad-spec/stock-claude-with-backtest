@@ -24,7 +24,7 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-from kite_client import KiteSession, KITECONNECT_AVAILABLE
+#from kite_client import KiteSession, KITECONNECT_AVAILABLE
 
 # --------------------------------------------------------------------------
 # CONFIG
