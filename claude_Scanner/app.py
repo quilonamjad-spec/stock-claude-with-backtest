@@ -16,6 +16,7 @@ Run locally:
 
 import io
 from datetime import datetime, timedelta, time as dtime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -23,7 +24,7 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-#from kite_client import KiteSession, KITECONNECT_AVAILABLE
+from kite_client import KiteSession, KITECONNECT_AVAILABLE
 
 # --------------------------------------------------------------------------
 # CONFIG
@@ -33,6 +34,14 @@ st.set_page_config(page_title="NSE 500 Bull/Bear Scanner", layout="wide")
 NSE500_URL = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
 LOCAL_FALLBACK = "nifty500_fallback.csv"  # optional: ship a cached copy in your repo
 IST_TZ = "Asia/Kolkata"
+IST = ZoneInfo(IST_TZ)
+
+
+def now_ist() -> datetime:
+    """Server-timezone-proof 'now'. Never use bare datetime.now() for
+    anything market-related — it returns the HOST's local clock (often
+    UTC on cloud servers), not IST, and silently produces a wrong as_of."""
+    return datetime.now(IST)
 
 DEFAULT_WEIGHTS = {
     "Trend_strength": 0.20,       # trend      -> EMA9 vs EMA21 separation
@@ -325,13 +334,13 @@ with st.sidebar:
     st.header("Scan settings")
 
     if st.button("🔄 Use current date/time"):
-        st.session_state["scan_date_input"] = datetime.now().date()
-        st.session_state["scan_time_input"] = datetime.now().time().replace(second=0, microsecond=0)
+        st.session_state["scan_date_input"] = now_ist().date()
+        st.session_state["scan_time_input"] = now_ist().time().replace(second=0, microsecond=0)
         st.rerun()
 
-    scan_date = st.date_input("Date", value=datetime.now().date(), key="scan_date_input")
+    scan_date = st.date_input("Date", value=now_ist().date(), key="scan_date_input")
     scan_time = st.time_input(
-        "Time (as-of)", value=datetime.now().time().replace(second=0, microsecond=0), key="scan_time_input"
+        "Time (as-of)", value=now_ist().time().replace(second=0, microsecond=0), key="scan_time_input"
     )
     as_of = pd.Timestamp.combine(scan_date, scan_time).tz_localize(IST_TZ)
     st.caption(f"Evaluating as of: {as_of}")
@@ -416,7 +425,7 @@ with st.expander("🔧 Data diagnostics — check what Yahoo actually has right 
             if raw.empty:
                 st.error("Yahoo returned no data at all for this symbol/period.")
             else:
-                st.write(f"Query run at: {datetime.now()} (local)")
+                st.write(f"Query run at: {now_ist()} (IST)")
                 st.write(f"Latest bar in the response: **{raw.index[-1]}**")
                 st.dataframe(raw.tail(5))
         except Exception as e:
@@ -505,7 +514,7 @@ if st.session_state.scan_df is not None and not st.session_state.scan_df.empty:
     st.subheader("Stage 1 — Scan results")
     scanned_at = st.session_state.get("scan_as_of")
     if scanned_at is not None:
-        if scanned_at.date() == datetime.now().date():
+        if scanned_at.date() == now_ist().date():
             st.caption(f"Scanned as of: {scanned_at} (today)")
         else:
             st.error(
