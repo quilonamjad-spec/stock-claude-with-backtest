@@ -689,11 +689,12 @@ def fetch_symbol_5m_since(symbol_ns: str, start_time, lookback_days: int = 10) -
 def simulate_trade(
     symbol_ns: str, direction: str, entry_price: float, entry_time,
     sl_pct: float, target_pct: float, trailing_enabled: bool, trailing_pct: float,
-    lookback_days: int = 10,
+    lookback_days: int = 10, same_day_only: bool = True,
 ) -> dict:
-    """Walk-forward replay of 5-min candles from entry_time to now. Same-candle
-    ambiguity (both SL and target crossed in one bar) resolves as stoploss-hit-
-    first — the conservative read, since we only have OHLC, not tick data.
+    """Walk-forward replay of 5-min candles from entry_time to now (or to
+    that day's close, if same_day_only). Same-candle ambiguity (both SL and
+    target crossed in one bar) resolves as stoploss-hit-first — the
+    conservative read, since we only have OHLC, not tick data.
 
     Trailing logic: once the initial target is reached, the position isn't
     closed — instead the stop-loss arms and ratchets behind the best price
@@ -716,8 +717,10 @@ def simulate_trade(
     }
 
     df = fetch_symbol_5m_since(symbol_ns, entry_time, lookback_days)
+    if same_day_only and not df.empty:
+        df = df[df.index.date == entry_time.date()]
     if df.empty:
-        result["Hit Time"] = "no data since entry"
+        result["Hit Time"] = "no data since entry" if not same_day_only else "no more bars today"
         return result
 
     sl = entry_price * (1 - sl_pct / 100) if is_long else entry_price * (1 + sl_pct / 100)
@@ -868,6 +871,15 @@ if st.session_state.simulation_list:
     sim_trailing_pct = c4.slider(
         "Trailing SL %", 0.1, 3.0, 0.3, 0.1, key="sim_trail_pct", disabled=not sim_trailing_enabled
     )
+    sim_same_day_only = st.checkbox(
+        "Same-day only (stop checking at that day's close)",
+        value=True,
+        key="sim_same_day_only",
+        help="On: a trade entered on the 12th only checks SL/target through the "
+             "12th's close, even if you refresh on a later day. Off: the replay "
+             "carries forward into following days too — useful once you're "
+             "testing multi-day holds, not for same-day intraday testing.",
+    )
 
     st.caption(
         "Cutoff is each stock's own entry time, so this doubles as live monitoring: "
@@ -885,6 +897,7 @@ if st.session_state.simulation_list:
                 target_pct=sim_target_pct,
                 trailing_enabled=sim_trailing_enabled,
                 trailing_pct=sim_trailing_pct,
+                same_day_only=sim_same_day_only,
             )
             for entry in st.session_state.simulation_list
         ]
