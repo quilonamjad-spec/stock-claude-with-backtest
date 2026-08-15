@@ -212,6 +212,29 @@ if st.session_state.scan_df is not None and not st.session_state.scan_df.empty:
 
 if st.session_state.ranked_df is not None:
     st.subheader("Stage 2 — Ranked results (post quality-gate)")
+
+    st.number_input(
+        "💰 Investment per trade (₹)",
+        min_value=100.0, value=float(st.session_state.get("investment_per_trade", 10000.0)),
+        step=500.0, key="investment_per_trade",
+        help="Set once here — Stage 4 and Stage 5 default to this same amount "
+             "(you can still override it there). Stage 2 itself has no stoploss/"
+             "target attached yet, so it can't show real profit/loss — just what "
+             "taking all the picks below would cost in capital.",
+    )
+    rdf = st.session_state.ranked_df
+    n_bull = int((rdf["Phase"] == "Bull").sum())
+    n_bear = int((rdf["Phase"] == "Bear").sum())
+    inv = st.session_state.investment_per_trade
+    cap_col1, cap_col2, cap_col3 = st.columns(3)
+    cap_col1.metric("Bull picks", n_bull, f"₹{n_bull * inv:,.0f} capital")
+    cap_col2.metric("Bear picks", n_bear, f"₹{n_bear * inv:,.0f} capital")
+    cap_col3.metric("Total capital required", f"₹{(n_bull + n_bear) * inv:,.0f}")
+    st.caption(
+        "For actual profit/loss in ₹, run these through Stage 4 (live) or "
+        "Stage 5 (historical) — both use this same investment amount by default."
+    )
+
     rank_cols = [
         "Rank", "Symbol", "Phase", "% Change", "LTP", "Rank Score",
         "Index", "Index % Chg", "Aligned",
@@ -337,11 +360,12 @@ if st.session_state.simulation_list:
              "testing multi-day holds, not for same-day intraday testing.",
     )
     sim_trade_value = st.number_input(
-        "Assumed trade value per position (₹) — for cost estimate only",
-        min_value=100.0, value=10000.0, step=500.0, key="sim_trade_value",
-        help="Not your actual position size — just used to estimate Zerodha's "
-             "round-trip transaction cost (brokerage, STT, exchange, GST, stamp "
-             "duty) so Net P/L% reflects real costs, not just the raw price move.",
+        "💰 Investment per trade (₹)",
+        min_value=100.0, value=float(st.session_state.get("investment_per_trade", 10000.0)),
+        step=500.0, key="sim_trade_value",
+        help="Defaults to the amount set in Stage 2, if you set one there. Used "
+             "both for the transaction-cost estimate and to show ₹ profit/loss "
+             "alongside the % figures.",
     )
 
     st.caption(
@@ -369,16 +393,17 @@ if st.session_state.simulation_list:
 
     if st.session_state.simulation_results is not None:
         st.subheader("Results")
-        sr = st.session_state.simulation_results
+        sr = st.session_state.simulation_results.copy()
+        sr["₹ P/L"] = (sr["Net P/L %"] / 100 * sim_trade_value).round(2)
         display_cols = [
             "Symbol", "Direction", "Entry Price", "Outcome", "Hit Time", "Hit Price",
-            "P/L %", "Net P/L %", "Best seen (MFE %)", "Worst seen (MAE %)",
+            "P/L %", "Net P/L %", "₹ P/L", "Best seen (MFE %)", "Worst seen (MAE %)",
             "Current SL", "Trail Armed",
         ]
         st.dataframe(sr[display_cols], use_container_width=True)
         st.caption(
             f"Net P/L% assumes ~{estimate_roundtrip_cost_pct(sim_trade_value):.3f}% "
-            f"round-trip transaction cost per trade at ₹{sim_trade_value:,.0f} trade value."
+            f"round-trip transaction cost per trade at ₹{sim_trade_value:,.0f} investment per trade."
         )
 
         m1, m2, m3, m4 = st.columns(4)
@@ -386,6 +411,12 @@ if st.session_state.simulation_list:
         m2.metric("🔴 Stoploss hit", int((sr["Outcome"] == "Stoploss Hit").sum()))
         m3.metric("➖ No hit (open)", int((sr["Outcome"] == "No Hit (EOD)").sum()))
         m4.metric("Avg Net P/L %", f"{sr['Net P/L %'].mean():.2f}%")
+
+        n_trades = len(sr)
+        m5, m6, m7 = st.columns(3)
+        m5.metric("Capital deployed", f"₹{n_trades * sim_trade_value:,.0f}")
+        m6.metric("Total ₹ P/L", f"₹{sr['₹ P/L'].sum():,.2f}")
+        m7.metric("Avg ₹ P/L / trade", f"₹{sr['₹ P/L'].mean():,.2f}")
 else:
     st.info("Add stocks above to start a simulation.")
 
@@ -411,7 +442,9 @@ bt_c4, bt_c5, bt_c6 = st.columns(3)
 bt_top_n = bt_c4.slider("Top N per phase per day", 1, 5, 2, key="bt_top_n")
 bt_use_gate = bt_c5.checkbox("Apply quality gate", value=gate_enabled, key="bt_use_gate")
 bt_trade_value = bt_c6.number_input(
-    "Assumed trade value (₹)", min_value=100.0, value=10000.0, step=500.0, key="bt_trade_value"
+    "💰 Investment per trade (₹)",
+    min_value=100.0, value=float(st.session_state.get("investment_per_trade", 10000.0)),
+    step=500.0, key="bt_trade_value",
 )
 
 bt_c7, bt_c8, bt_c9, bt_c10 = st.columns(4)
@@ -502,8 +535,11 @@ if st.button("▶️ Run historical backtest", type="primary"):
 
     if all_trades:
         bt_df = pd.DataFrame(all_trades)
+        bt_df["₹ P/L"] = (bt_df["Net P/L %"] / 100 * bt_trade_value).round(2)
         bt_df["Cumulative Net P/L %"] = bt_df["Net P/L %"].cumsum()
+        bt_df["Cumulative ₹ P/L"] = bt_df["₹ P/L"].cumsum()
         st.session_state.backtest_results = bt_df
+        st.session_state.backtest_trade_value = bt_trade_value
     else:
         st.session_state.backtest_results = pd.DataFrame()
         st.warning(
@@ -512,7 +548,8 @@ if st.button("▶️ Run historical backtest", type="primary"):
         )
 
 if st.session_state.backtest_results is not None and not st.session_state.backtest_results.empty:
-    bt = st.session_state.backtest_results
+    bt = st.session_state.backtest_results.reset_index(drop=True)
+    inv = st.session_state.get("backtest_trade_value", bt_trade_value)
     st.subheader("Backtest results")
 
     total_trades = len(bt)
@@ -528,20 +565,63 @@ if st.session_state.backtest_results is not None and not st.session_state.backte
     k3.metric("Avg net P/L / trade", f"{avg_net:.2f}%")
     k4.metric("Sum net P/L", f"{total_net:.2f}%")
 
-    k5, k6 = st.columns(2)
+    k5, k6, k7, k8 = st.columns(4)
     k5.metric("Avg win", f"{wins.mean():.2f}%" if len(wins) else "—")
     k6.metric("Avg loss", f"{losses.mean():.2f}%" if len(losses) else "—")
+    k7.metric("Capital deployed", f"₹{total_trades * inv:,.0f}", help=f"{total_trades} trades × ₹{inv:,.0f} each")
+    k8.metric("Total ₹ P/L", f"₹{bt['₹ P/L'].sum():,.2f}")
 
-    st.line_chart(bt["Cumulative Net P/L %"])
+    st.markdown(f"**Equity curve — ₹{inv:,.0f} invested per trade**")
+    st.caption(
+        "Each candle is one trade: body = open→close cumulative ₹ P/L (net of "
+        "costs), wick = the best/worst unrealized excursion during that trade "
+        "(gross, from MFE/MAE) — so a long wick past the body shows a trade "
+        "that moved further in your favor (or against you) than what was "
+        "actually realized. The line traces the running total on top."
+    )
 
-    by_day = bt.groupby("Date")["Net P/L %"].sum().reset_index().rename(columns={"Net P/L %": "Day Net P/L %"})
+    open_vals = bt["Cumulative ₹ P/L"].shift(1).fillna(0.0)
+    close_vals = bt["Cumulative ₹ P/L"]
+    high_raw = open_vals + (bt["Best seen (MFE %)"] / 100 * inv)
+    low_raw = open_vals + (bt["Worst seen (MAE %)"] / 100 * inv)
+    high_vals = pd.concat([high_raw, close_vals], axis=1).max(axis=1)
+    low_vals = pd.concat([low_raw, close_vals], axis=1).min(axis=1)
+    x_labels = bt["Date"] + " " + bt["Symbol"]
+
+    try:
+        import plotly.graph_objects as go
+
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=x_labels, open=open_vals, high=high_vals, low=low_vals, close=close_vals,
+            increasing_line_color="#26a69a", decreasing_line_color="#ef5350",
+            name="Per-trade ₹ P/L",
+        ))
+        fig.add_trace(go.Scatter(
+            x=x_labels, y=close_vals, mode="lines+markers", name="Cumulative ₹ P/L",
+            line=dict(color="#42a5f5", width=2), marker=dict(size=4),
+        ))
+        fig.add_hline(y=0, line_dash="dot", line_color="gray", annotation_text="Break-even")
+        fig.update_layout(
+            template="plotly_dark", height=450, xaxis_rangeslider_visible=False,
+            xaxis_title=None, yaxis_title="Cumulative ₹ P/L",
+            margin=dict(l=10, r=10, t=10, b=10),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except ImportError:
+        st.warning("Install `plotly` (`pip install plotly`) for the candlestick equity chart. Showing a plain line instead.")
+        st.line_chart(bt["Cumulative ₹ P/L"])
+
+    by_day = bt.groupby("Date").agg(
+        **{"Trades": ("Symbol", "count"), "Day Net P/L %": ("Net P/L %", "sum"), "Day ₹ P/L": ("₹ P/L", "sum")}
+    ).reset_index()
     st.caption("By day")
     st.dataframe(by_day, use_container_width=True)
 
     st.caption("All trades")
     trade_cols = [
         "Date", "Symbol", "Direction", "Entry Price", "Outcome", "Hit Time",
-        "P/L %", "Net P/L %", "Rank Score", "Best seen (MFE %)", "Worst seen (MAE %)",
+        "P/L %", "Net P/L %", "₹ P/L", "Rank Score", "Best seen (MFE %)", "Worst seen (MAE %)",
     ]
     st.dataframe(bt[trade_cols], use_container_width=True)
 

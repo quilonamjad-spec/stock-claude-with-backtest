@@ -208,8 +208,35 @@ Each one is walked forward with `simulate_trade` exactly like Stage 4,
 same-day only.
 
 **Output:** total trades, win rate, avg net P/L per trade, avg win vs.
-avg loss, a cumulative equity curve, a by-day breakdown, and every
+avg loss, a candlestick equity curve, a by-day breakdown, and every
 individual trade — downloadable as CSV.
+
+**The equity chart is a candlestick, not a plain line.** Each candle is
+one trade, in chronological order: the body is open→close cumulative ₹
+P/L (net of transaction costs), and the wick is the best/worst
+*unrealized* excursion during that trade — built from MFE/MAE, gross,
+since costs only apply once you actually exit. A long wick past the body
+means the trade moved further in your favor (or against you) than what
+actually got captured, which the plain line chart couldn't show. A
+cumulative line is drawn on top connecting each candle's close, and a
+dotted zero line marks break-even. Requires `plotly` (in
+requirements.txt); falls back to a plain line chart if it's not
+installed.
+
+## Money terms (₹, not just %)
+
+**Investment per trade** is a single input, set once in Stage 2's ranked
+results, that Stage 4 and Stage 5 both default to (each can still
+override it locally). It's used two ways: to estimate transaction cost
+(`estimate_roundtrip_cost_pct` needs a rupee amount, not a percentage),
+and to convert every P/L% figure into an actual ₹ P/L.
+
+- **Stage 2** can't show real profit/loss — it has no stoploss/target
+  attached yet, just ranked candidates — so instead it shows what taking
+  all the current picks would cost in capital (`picks × investment`).
+- **Stage 4 and Stage 5** both show a **₹ P/L** column per trade plus
+  summary metrics: capital deployed, total ₹ P/L, avg ₹ P/L per trade —
+  alongside the existing % figures, not instead of them.
 
 **Performance note:** all days in one backtest run share the same Yahoo
 data fetch window (same `period` parameter under the hood), so after the
