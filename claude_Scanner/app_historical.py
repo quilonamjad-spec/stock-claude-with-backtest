@@ -1090,7 +1090,14 @@ if st.button("▶️ Run historical backtest", type="primary"):
             continue
 
         day_ranked = rank_results(passed, weights)
-        picks = day_ranked.groupby("Phase", group_keys=False).apply(lambda g: g.head(bt_top_n))
+        # Explicit per-phase filter + head + concat instead of
+        # groupby(...).apply(lambda g: g.head(n)) — some pandas versions
+        # silently drop the grouping column ("Phase") from the apply result,
+        # which then breaks pick["Phase"] below. This form is version-safe.
+        picks = pd.concat(
+            [day_ranked[day_ranked["Phase"] == p].head(bt_top_n) for p in day_ranked["Phase"].unique()],
+            ignore_index=True,
+        ) if not day_ranked.empty else day_ranked
 
         for _, pick in picks.iterrows():
             direction = "Long" if pick["Phase"] == "Bull" else "Short"
