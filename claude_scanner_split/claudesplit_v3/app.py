@@ -321,7 +321,9 @@ with add_col2:
     if st.button("Add custom symbol"):
         if custom_sym:
             try:
-                q = yf.download(f"{custom_sym}.NS", period="1d", interval="5m", progress=False)
+                q = yf.download(f"{custom_sym}.NS", period="1d", interval="5m", progress=False, auto_adjust=False)
+                if isinstance(q.columns, pd.MultiIndex):
+                    q.columns = q.columns.get_level_values(0)
                 ltp = float(q["Close"].dropna().iloc[-1])
                 existing = {e["Symbol"] for e in st.session_state.simulation_list}
                 if custom_sym not in existing:
